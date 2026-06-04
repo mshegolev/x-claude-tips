@@ -1,0 +1,29 @@
+node_modules/
+*.log
+npm-debug.log*
+
+# Local credentials — never committed
+.x-creds
+.x-creds.bak
+.env
+.env.*
+
+# Playwright runtime
+playwright-report/
+test-results/
+
+# Persistent browser profile (per-user runtime data)
+.config/
+
+# Local knowledge base — user-specific data
+knowledge/
+sources/
+
+# Macros
+.DS_Store
+*.swp
+*~
+
+# Build artifacts
+dist/
+*.tgz

@@ -1,0 +1,32 @@
+{
+  "name": "x-claude-tips",
+  "version": "0.3.0",
+  "description": "Claude Code skill: mine X (Twitter) for high-signal Claude Code / CLAUDE.md tips, dedupe, review, apply. Ships with a local Node.js MCP server for X scraping.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mshegolev/x-claude-tips.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check store.js && node --check refresh_creds.js && node --check update.js && bash -n install.sh"
+  },
+  "bin": {
+    "x-claude-tips-store": "./store.js",
+    "x-claude-tips-refresh-creds": "./refresh_creds.js",
+    "x-claude-tips-update": "./update.js"
+  },
+  "files": [
+    "SKILL.md",
+    "store.js",
+    "refresh_creds.js",
+    "update.js",
+    "install.sh",
+    "README.md",
+    "LICENSE"
+  ]
+}
