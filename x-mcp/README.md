@@ -1,6 +1,6 @@
 # x-mcp
 
-Local MCP server for X/Twitter scraping via headless Chromium. Node.js port of the original Python implementation.
+Local MCP server for X/Twitter scraping via headless Chromium. Node.js port of the original Python implementation. Browser scraping is the default; an opt-in Hermes Tweet / Xquik backend can serve the same read tools with an API key.
 
 Exposes four tools to Claude Code over stdio:
 
@@ -20,6 +20,24 @@ export TWITTER_CT0=...         # ct0 cookie from x.com
 
 Values come from DevTools → Application → Cookies → `https://x.com` on a logged-in browser session. When `x_auth_status` returns `{"logged_in": false}` they expired — refresh from browser.
 
+### Optional Hermes Tweet backend
+
+To route reads through Hermes Tweet / Xquik instead of browser scraping, set:
+
+```bash
+export X_MCP_BACKEND=hermes
+export HERMES_TWEET_API_KEY=...  # or XQUIK_API_KEY=...
+```
+
+Optional overrides:
+
+```bash
+export HERMES_TWEET_BASE_URL=https://xquik.com
+export X_MCP_HERMES_TIMEOUT_MS=20000
+```
+
+`x_auth_status` returns backend readiness in Hermes mode. `x_search`, `x_user_tweets`, and `x_tweet` keep the same output shape as the browser parser.
+
 ## Install
 
 ```bash
@@ -38,6 +56,13 @@ node src/cli.js user elonmusk --count 5
 node src/cli.js tweet https://x.com/user/status/1234567890
 ```
 
+Hermes mode:
+
+```bash
+X_MCP_BACKEND=hermes HERMES_TWEET_API_KEY=... \
+  node src/cli.js search '"CLAUDE.md" min_faves:500 since:2026-05-01' --count 10
+```
+
 ## Register with Claude Code
 
 ```bash
@@ -54,6 +79,7 @@ Four files in `src/`:
 - `server.js` — MCP stdio server (`@modelcontextprotocol/sdk`). Each tool opens a fresh page from the singleton `BrowserSession`, delegates to `parser`, returns JSON.
 - `browser.js` — `BrowserSession` singleton. Persistent Chromium context at `~/.config/x-mcp/profile`. Tries real Chrome (`channel: 'chrome'`) first, falls back to bundled chromium. Stealth applied per-page via `addInitScript` (UA / platform / vendor / webdriver overrides).
 - `parser.js` — `EXTRACT_JS` runs in the page to pull article fields (text, time, permalink, handle, stats). `scrollAndCollect` deduplicates by permalink, scrolls 4000px/tick, bails after 3 stagnant iterations or 25 max scrolls.
+- `hermes.js` — optional Hermes Tweet / Xquik read backend. Builds API requests, applies timeouts, and normalizes flexible tweet payloads to the parser shape.
 - `cli.js` — Standalone runner: `auth` / `search` / `user` / `tweet` / `import-profile`.
 
 Lifecycle: the MCP server keeps one Chromium alive for the whole process. The CLI tears down on exit.

@@ -13,6 +13,13 @@ import {
 import { dirname, join } from 'node:path';
 
 import { BrowserSession, CHROME_PROFILE_SRC, PROFILE_DIR } from './browser.js';
+import {
+  hermesAuthStatus,
+  hermesEnabled,
+  searchHermes,
+  tweetHermes,
+  userTweetsHermes,
+} from './hermes.js';
 import { search, tweet, userTweets } from './parser.js';
 
 // Files copied from Chrome profile for fingerprint + preferences. Cookies and
@@ -110,6 +117,7 @@ function usage(code = 1) {
 }
 
 async function runBrowserCmd(cmd, argv) {
+  if (hermesEnabled()) return runHermesCmd(cmd, argv);
   const sess = await BrowserSession.get();
   const page = await sess.newPage();
   try {
@@ -143,6 +151,35 @@ async function runBrowserCmd(cmd, argv) {
     await page.close().catch(() => {});
     await sess.close().catch(() => {});
   }
+}
+
+async function runHermesCmd(cmd, argv) {
+  if (cmd === 'auth') {
+    const status = hermesAuthStatus();
+    process.stdout.write(`${JSON.stringify(status)}\n`);
+    return status.configured ? 0 : 2;
+  }
+  let data;
+  if (cmd === 'search') {
+    const query = argv[0];
+    if (!query) usage();
+    const count = Number.parseInt(parseFlag(argv, 'count', '10'), 10);
+    const sort = parseFlag(argv, 'sort', 'Latest');
+    data = await searchHermes(query, count, sort);
+  } else if (cmd === 'user') {
+    const username = argv[0];
+    if (!username) usage();
+    const count = Number.parseInt(parseFlag(argv, 'count', '10'), 10);
+    data = await userTweetsHermes(username, count);
+  } else if (cmd === 'tweet') {
+    const url = argv[0];
+    if (!url) usage();
+    data = await tweetHermes(url);
+  } else {
+    usage();
+  }
+  process.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
+  return 0;
 }
 
 async function main() {

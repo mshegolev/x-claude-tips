@@ -49,7 +49,7 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
 
 ### Steps
 
-1. Call `mcp__x-browser__x_auth_status`. If not logged in, tell the user to refresh `~/.x-creds` (run `node ~/.claude/skills/x-claude-tips/refresh_creds.js`; it creates a fill-in template if `~/.x-creds` is missing). If the user logged in through a non-default browser, pass `--browser firefox`, `--browser safari`, or `--browser auto`. Stop after giving the refresh instruction.
+1. Call `mcp__x-browser__x_auth_status`. If it returns `{"backend":"hermes"}`, continue when `configured` is true; otherwise tell the user to set `HERMES_TWEET_API_KEY` or `XQUIK_API_KEY` in the MCP launch environment. In browser mode, if not logged in, tell the user to refresh `~/.x-creds` (run `node ~/.claude/skills/x-claude-tips/refresh_creds.js`; it creates a fill-in template if `~/.x-creds` is missing). If the user logged in through a non-default browser, pass `--browser firefox`, `--browser safari`, or `--browser auto`. Stop after giving the refresh instruction.
 
 2. Compute `since = today - days` (default 14). Run `mcp__x-browser__x_search` with `sort="Top"` for each query below. Cap `count=30`. Replace `<SINCE>` with the iso date.
 
