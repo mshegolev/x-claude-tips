@@ -1,6 +1,6 @@
 # x-claude-tips
 
-A Claude Code skill that mines X (Twitter) for high-signal Claude Code / `CLAUDE.md` / agent / hook / skill tips, deduplicates them into a local rules database, and helps you review and apply them. Ships with a local Node.js MCP server (`x-mcp`) for scraping X via headless Chromium — no official X API call path.
+A Claude Code skill that mines X (Twitter) for high-signal Claude Code / `CLAUDE.md` / agent / hook / skill tips, deduplicates them into a local rules database, and helps you review and apply them. Ships with a local Node.js MCP server (`x-mcp`) for scraping X via headless Chromium by default, plus an optional Hermes Tweet / Xquik read backend for API-key based search.
 
 ## What it does
 
@@ -70,11 +70,27 @@ export TWITTER_CT0=...         # ct0 cookie from x.com
 
 Values come from DevTools → Application → Cookies → `https://x.com` on a logged-in browser session. On macOS run `node refresh_creds.js` to extract them from Chrome / Firefox / Safari automatically.
 
+Optional: use Hermes Tweet / Xquik instead of browser scraping for reads:
+
+```bash
+export X_MCP_BACKEND=hermes
+export HERMES_TWEET_API_KEY=...  # or XQUIK_API_KEY=...
+```
+
+This keeps the same MCP tools and routes `x_search`, `x_user_tweets`, and `x_tweet` through the Hermes Tweet API. Browser scraping remains the default when `X_MCP_BACKEND` is unset.
+
 ### 4. Register the MCP with Claude Code
 
 ```bash
 claude mcp add x-browser \
   bash -c "source ~/.x-creds && exec node /opt/develop/x-claude-tips/x-mcp/src/server.js"
+```
+
+For Hermes mode, source the API key instead of browser cookies:
+
+```bash
+claude mcp add x-browser \
+  bash -c "export X_MCP_BACKEND=hermes; source ~/.hermes-tweet-creds && exec node /opt/develop/x-claude-tips/x-mcp/src/server.js"
 ```
 
 Tools then appear as `mcp__x-browser__x_search`, `mcp__x-browser__x_user_tweets`, `mcp__x-browser__x_tweet`, `mcp__x-browser__x_auth_status`.
@@ -96,6 +112,13 @@ Standalone smoke-test of the MCP (without Claude):
 source ~/.x-creds
 node x-mcp/src/cli.js auth
 node x-mcp/src/cli.js search '"CLAUDE.md" min_faves:500 since:2026-05-01' --count 10
+```
+
+Hermes backend smoke test:
+
+```bash
+X_MCP_BACKEND=hermes HERMES_TWEET_API_KEY=... \
+  node x-mcp/src/cli.js search '"CLAUDE.md" min_faves:500 since:2026-05-01' --count 10
 ```
 
 ## Auth refresh

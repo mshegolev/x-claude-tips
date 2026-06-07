@@ -9,6 +9,13 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { BrowserSession } from './browser.js';
+import {
+  hermesAuthStatus,
+  hermesEnabled,
+  searchHermes,
+  tweetHermes,
+  userTweetsHermes,
+} from './hermes.js';
 import { search, userTweets, tweet } from './parser.js';
 
 const log = (...a) => process.stderr.write(`${new Date().toISOString()} server ${a.join(' ')}\n`);
@@ -53,7 +60,8 @@ const TOOLS = [
   },
   {
     name: 'x_auth_status',
-    description: 'Check whether the browser session is logged into X. Useful for diagnosing stale cookies.',
+    description:
+      'Check whether the active X backend is ready. Browser mode checks X login; Hermes mode checks API key configuration.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -78,21 +86,28 @@ async function handleCall(name, args) {
       const query = String(args.query ?? '');
       const count = clamp(args.count ?? 20);
       const sort = args.sort ?? 'Latest';
-      const tweets = await withPage((_, page) => search(page, query, count, sort));
+      const tweets = hermesEnabled()
+        ? await searchHermes(query, count, sort)
+        : await withPage((_, page) => search(page, query, count, sort));
       return jsonResult({ query, count: tweets.length, tweets });
     }
     case 'x_user_tweets': {
       const username = String(args.username ?? '');
       const count = clamp(args.count ?? 20);
-      const tweets = await withPage((_, page) => userTweets(page, username, count));
+      const tweets = hermesEnabled()
+        ? await userTweetsHermes(username, count)
+        : await withPage((_, page) => userTweets(page, username, count));
       return jsonResult({ username, count: tweets.length, tweets });
     }
     case 'x_tweet': {
       const url = String(args.url ?? '');
-      const tw = await withPage((_, page) => tweet(page, url));
+      const tw = hermesEnabled()
+        ? await tweetHermes(url)
+        : await withPage((_, page) => tweet(page, url));
       return jsonResult(tw ?? {});
     }
     case 'x_auth_status': {
+      if (hermesEnabled()) return jsonResult(hermesAuthStatus());
       const ok = await withPage((sess, page) => sess.isLoggedIn(page));
       return jsonResult({ logged_in: ok });
     }
