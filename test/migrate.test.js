@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { migrateRule } from '../migrate-v2.js';
+import { migrateRule, backupPath } from '../migrate-v2.js';
+import { writeFileSync, readFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const legacy = {
   id: 'r_0001',
@@ -56,4 +59,54 @@ test('migrateRule is idempotent', () => {
   const once = migrateRule(legacy);
   const twice = migrateRule(once);
   assert.deepEqual(twice, once);
+});
+
+test('backupPath creates date-stamped backup when none exists', () => {
+  const tmpDir = tmpdir();
+  const source = join(tmpDir, `test-source-${Date.now()}.txt`);
+  const sourceContent = 'original data';
+  writeFileSync(source, sourceContent);
+
+  const bakPath = backupPath(source);
+
+  try {
+    assert(bakPath.includes('.bak-'), 'backup path includes .bak- marker');
+    assert(bakPath.match(/\d{4}-\d{2}-\d{2}$/), 'backup has date stamp YYYY-MM-DD');
+    const bakContent = readFileSync(bakPath, 'utf8');
+    assert.equal(bakContent, sourceContent, 'backup contains source content');
+  } finally {
+    try { unlinkSync(source); } catch {}
+    try { unlinkSync(bakPath); } catch {}
+  }
+});
+
+test('backupPath creates timestamped backup when date backup exists', () => {
+  const tmpDir = tmpdir();
+  const source = join(tmpDir, `test-source-${Date.now()}.txt`);
+  const sourceContent1 = 'first backup';
+  const sourceContent2 = 'second backup';
+
+  writeFileSync(source, sourceContent1);
+  const first = backupPath(source);
+
+  writeFileSync(source, sourceContent2);
+  const second = backupPath(source);
+
+  try {
+    // First backup should be date-stamped
+    assert(first.match(/\d{4}-\d{2}-\d{2}$/), 'first has date stamp');
+    assert.equal(readFileSync(first, 'utf8'), sourceContent1, 'first unchanged');
+
+    // Second backup should be timestamped (different name)
+    assert.notEqual(first, second, 'second backup has different name');
+    assert(second.match(/T\d{2}-\d{2}-\d{2}$/), 'second has timestamp');
+    assert.equal(readFileSync(second, 'utf8'), sourceContent2, 'second contains new content');
+
+    // First must remain untouched
+    assert.equal(readFileSync(first, 'utf8'), sourceContent1, 'first still has original content');
+  } finally {
+    unlinkSync(source);
+    try { unlinkSync(first); } catch {}
+    try { unlinkSync(second); } catch {}
+  }
 });
