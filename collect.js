@@ -24,18 +24,31 @@ function defaultSince(days) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    since: { type: 'string' },
-    days: { type: 'string', default: '14' },
-    'no-filter': { type: 'boolean', default: false },
-  },
-});
+const USAGE =
+  'usage: collect.js <kind> [--since YYYY-MM-DD] [--days N] [--no-filter]\n';
+
+let values;
+let positionals;
+try {
+  // parseArgs бросает на неизвестном флаге и на `--days -5` (минус читается
+  // как начало опции; работает форма `--days=-5`). Без перехвата это сырой
+  // стек вместо сообщения.
+  ({ values, positionals } = parseArgs({
+    allowPositionals: true,
+    options: {
+      since: { type: 'string' },
+      days: { type: 'string', default: '14' },
+      'no-filter': { type: 'boolean', default: false },
+    },
+  }));
+} catch (err) {
+  process.stderr.write(`collect.js: ${err.message}\n${USAGE}`);
+  process.exit(2);
+}
 
 const kind = positionals[0];
 if (!kind) {
-  process.stderr.write('usage: collect.js <kind> [--since YYYY-MM-DD] [--days N] [--no-filter]\n');
+  process.stderr.write(USAGE);
   process.exit(1);
 }
 
