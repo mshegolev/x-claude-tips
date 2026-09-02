@@ -9,7 +9,7 @@
     "url": "https://github.com/mshegolev/x-claude-tips.git"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "test": "node --test",
