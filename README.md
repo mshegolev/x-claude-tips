@@ -19,17 +19,19 @@ Twitter is the de facto release notes channel for Claude Code tips, but signal-t
 
 - macOS (the `refresh_creds.js` helper is macOS-specific; the skill itself works anywhere Claude Code runs)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and working
-- **Node.js 22.12+** (LTS; uses built-in `node:sqlite`, `node:crypto`, `util.parseArgs` — zero npm dependencies)
+- **Node.js 20.19+** (uses built-in `node:crypto` and `util.parseArgs` — zero npm dependencies; the branch is developed and tested on 20.19.6)
+- The `sqlite3` command-line tool, used by `lib/chrome-cookies.js` to read Chrome's cookie DB (`brew install sqlite` on macOS, or MacPorts' `sqlite3`). `node:sqlite` is deliberately not used — it does not exist on Node 20.
 - The `x-browser-mcp` server binary (Go), installed locally so `collect.js` can drive it over REST on `127.0.0.1:18110` — not an MCP server registered in Claude Code
 - A logged-in X (Twitter) session in Chrome (`x-session.sh` reads Chrome's cookie DB to seed `x-browser-mcp`'s session; if that fails it falls back to an interactive login in an opened Chrome window)
 
 ### Step 1 — Verify Node version
 
 ```bash
-node --version    # must be >= v22.12.0
+node --version     # must be >= v20.19.0
+sqlite3 --version  # any 3.x
 ```
 
-If older, install Node 22 LTS via [nvm](https://github.com/nvm-sh/nvm), Homebrew (`brew install node@22`), or your distro's package manager.
+If Node is older, install a current LTS via [nvm](https://github.com/nvm-sh/nvm), Homebrew (`brew install node`), or your distro's package manager.
 
 ### Step 2 — Install the skill
 
@@ -85,19 +87,15 @@ chmod +x ~/.claude/skills/x-claude-tips/store.js \
 
 No `npm install` needed — the scripts use only Node built-ins.
 
-### Step 3 — Seed the knowledge base (optional)
+### Step 3 — The knowledge base
 
-The repo ships with the maintainer's `rules.jsonl` as a worked example. To start from scratch, skip this step — the store auto-creates empty files on first `add`.
+Nothing to do. The repo ships no `knowledge/` directory: `store.js` creates
+`~/.claude/knowledge/x-tips/` with empty `rules.jsonl` and `decisions.jsonl`
+on the first command that touches the store.
 
-```bash
-mkdir -p ~/.claude/knowledge/x-tips
-cp -n knowledge/x-tips/INDEX.md \
-      knowledge/x-tips/rules.jsonl \
-      knowledge/x-tips/decisions.jsonl \
-      ~/.claude/knowledge/x-tips/
-```
-
-(`-n` won't overwrite if you already have a knowledge base.)
+If you are carrying a knowledge base over from a 0.1.x install, copy your own
+files into `~/.claude/knowledge/x-tips/` and then run the schema migration —
+see "Upgrading from the 0.1.x (Python) version" below.
 
 ### Step 4 — Provide X credentials
 
@@ -279,14 +277,15 @@ Files in `~/.claude/knowledge/x-tips/`:
 
 Each rule has a `target` classifier (`CLAUDE.md`, `agent`, `hook`, `settings`, `slash`, `workflow`, `mcp`, `other`) and a `status` (`review` → `adopted` / `rejected` / `removed`).
 
-The repo ships with the maintainer's current rules.jsonl / INDEX.md / decisions.jsonl as a worked example — feel free to wipe and start fresh.
+These files are yours alone — the repo ships no knowledge base of its own, and
+neither `install.sh` nor `update.js` writes into this directory.
 
 ## Hard rules
 
 - Never copy full tweet bodies into the DB. Only the extracted rule line + metadata + source URL.
 - Never auto-apply rules to `CLAUDE.md` / settings / agents. Always show a diff and ask first.
 - Keep rule text terse and imperative. No "I think", no emojis, no hashtags.
-- Dedup is the point: running `fetch` twice over the same window increments `seen` on existing rules, not creates duplicates.
+- Dedup is the point: running `fetch` twice over the same window does not create duplicates. A source already on a rule is a no-op; a new distinct source raises that rule's `consensus`. (`seen` was a 0.1.x field and was removed by the v2 migration — `consensus` replaced it.)
 
 ## Legacy scripts
 
@@ -302,7 +301,9 @@ header comment in each file for the specific breakage:
 
 ## Upgrading from the 0.1.x (Python) version
 
-0.1.x shipped `store.py` and `refresh_creds.py`. 0.2.0 replaces them with Node.js equivalents and drops the `cryptography` dependency. Knowledge base format (`rules.jsonl`, `INDEX.md`, `decisions.jsonl`) is unchanged — your existing data carries over byte-compatible; rule hashes and IDs stay stable.
+0.1.x shipped `store.py` and `refresh_creds.py`. 0.2.0 replaces them with Node.js equivalents and drops the `cryptography` dependency.
+
+**The `rules.jsonl` record shape changed.** Rule hashes, IDs, `text`, `target` and `status` are stable, but v2 gives every source a `kind` and a `metrics` object, derives `authority` / `consensus` / `kinds` per rule, and drops the `seen` and `bookmarks_max` fields. Existing data is **not** byte-compatible; run the one-shot, idempotent migration below (step 4), which writes a timestamped `.bak-` backup next to your store before touching it.
 
 ```bash
 # 1. Remove the old Python scripts
@@ -325,7 +326,10 @@ chmod +x ~/.claude/skills/x-claude-tips/store.js \
          ~/.claude/skills/x-claude-tips/update.js \
          ~/.claude/skills/x-claude-tips/install.sh
 
-# 4. Restart Claude Code so the updated SKILL.md is picked up.
+# 4. Migrate rules.jsonl to the v2 record shape (idempotent, backs up first)
+node ~/.claude/skills/x-claude-tips/migrate-v2.js
+
+# 5. Restart Claude Code so the updated SKILL.md is picked up.
 ```
 
 Known cosmetic differences vs the Python version (functionally identical):
