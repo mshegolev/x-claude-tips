@@ -57,7 +57,7 @@ fi
 # 5. Только теперь — интерактивный логин. Дефолтные 4 минуты на практике
 #    истекают раньше, чем человек успевает среагировать, поэтому 15m.
 echo "x-session: cookie import did not work; opening interactive login" >&2
-curl -s --noproxy '*' --max-time 60 -X POST "$API/api/v1/login/start" >&2
+curl -sS --noproxy '*' --max-time 60 -X POST "$API/api/v1/login/start" >&2 || true
 echo >&2
 echo "x-session: log into X in the opened Chrome window, close it, then rerun" >&2
 exit 2
