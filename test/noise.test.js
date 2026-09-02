@@ -37,6 +37,11 @@ test('keeps concrete rules', () => {
   assert.equal(classify('many people asked me how to write CLAUDE.md or AGENTS.md, and i see lots of bad advice flying around so i took some time to write down a guide'), null);
 });
 
+test('drops announcements with both ASCII and typographic apostrophes', () => {
+  assert.equal(classify("Today, I'm open-sourcing /cmd, an AI tool"), DROP_REASONS.ANNOUNCEMENT);
+  assert.equal(classify("Today, I'm open-sourcing /cmd, an AI tool"), DROP_REASONS.ANNOUNCEMENT);
+});
+
 test('filterItems collapses clones of one thread', () => {
   const items = [
     { id: '1', text: 'BREAKING NEWS! The engineer who created Claude Code from scratch just released a 28-minute video thats pure gold' },
