@@ -70,9 +70,14 @@ git clone https://github.com/mshegolev/x-claude-tips.git
 cd x-claude-tips
 # Skill goes here so Claude Code auto-discovers it on next start
 mkdir -p ~/.claude/skills/x-claude-tips
-cp SKILL.md store.js refresh_creds.js update.js install.sh package.json README.md LICENSE \
-   ~/.claude/skills/x-claude-tips/
+cp -R SKILL.md store.js collect.js migrate-v2.js x-session.sh \
+      lib collectors refresh_creds.js update.js install.sh \
+      package.json README.md LICENSE \
+      ~/.claude/skills/x-claude-tips/
 chmod +x ~/.claude/skills/x-claude-tips/store.js \
+         ~/.claude/skills/x-claude-tips/collect.js \
+         ~/.claude/skills/x-claude-tips/migrate-v2.js \
+         ~/.claude/skills/x-claude-tips/x-session.sh \
          ~/.claude/skills/x-claude-tips/refresh_creds.js \
          ~/.claude/skills/x-claude-tips/update.js \
          ~/.claude/skills/x-claude-tips/install.sh
@@ -287,9 +292,14 @@ rm ~/.claude/skills/x-claude-tips/store.py \
 pip3 uninstall cryptography
 
 # 3. Install the new files (from a fresh clone of this repo)
-cp SKILL.md store.js refresh_creds.js update.js install.sh package.json README.md LICENSE \
-   ~/.claude/skills/x-claude-tips/
+cp -R SKILL.md store.js collect.js migrate-v2.js x-session.sh \
+      lib collectors refresh_creds.js update.js install.sh \
+      package.json README.md LICENSE \
+      ~/.claude/skills/x-claude-tips/
 chmod +x ~/.claude/skills/x-claude-tips/store.js \
+         ~/.claude/skills/x-claude-tips/collect.js \
+         ~/.claude/skills/x-claude-tips/migrate-v2.js \
+         ~/.claude/skills/x-claude-tips/x-session.sh \
          ~/.claude/skills/x-claude-tips/refresh_creds.js \
          ~/.claude/skills/x-claude-tips/update.js \
          ~/.claude/skills/x-claude-tips/install.sh
