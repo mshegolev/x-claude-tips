@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// LEGACY (pre-v2 schema, not wired into collect.js): parses INDEX.md by
+// column index expecting a `likes` column at parts[4]. The current
+// header is `| auth | cons | status | target | kinds | id | rule |`, so
+// parts[4] is `target`, not `likes`. Needs updating before use.
+
 // Скрипт для генерации оптимальных правил для Qwen3 Coder 480B
 
 import { execSync } from 'child_process';

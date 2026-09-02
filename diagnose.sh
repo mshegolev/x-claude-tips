@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# LEGACY (pre-v2 schema, not wired into collect.js): starts the server
+# with ROD_BROWSER_BIN pointing at Firefox. x-session.sh documents this
+# exact configuration as fatal -- rod dies before any network call.
+# Needs updating before use.
+
 # Script to diagnose and fix x-browser-mcp Firefox issues
 
 echo "=== Diagnosing x-browser-mcp Firefox Issues ==="

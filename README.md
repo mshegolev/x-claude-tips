@@ -4,7 +4,7 @@ A Claude Code skill that mines X (Twitter) for high-signal Claude Code / `CLAUDE
 
 ## What it does
 
-1. **Fetch** — pulls fresh, high-engagement tweets about Claude Code via the [x-browser MCP server](https://github.com/anthropics) and extracts one-line, imperative rule statements from each.
+1. **Fetch** — `node collect.js x` drives the local `x-browser-mcp` server over its REST API on `127.0.0.1:18110` to pull fresh, high-engagement tweets about Claude Code, then extracts one-line, imperative rule statements from each.
 2. **Dedupe** — every rule is hashed, and near-duplicates (Jaccard ≥ 0.7) are flagged for manual merge so the database stays clean across repeated runs.
 3. **Review** — surfaces the queue of `review`-status rules sorted by consensus (how many independent tweets mentioned the same thing).
 4. **Apply** — proposes concrete diffs to your `CLAUDE.md`, settings, hooks, agents, or skills — never auto-edits.
@@ -20,8 +20,8 @@ Twitter is the de facto release notes channel for Claude Code tips, but signal-t
 - macOS (the `refresh_creds.js` helper is macOS-specific; the skill itself works anywhere Claude Code runs)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and working
 - **Node.js 22.12+** (LTS; uses built-in `node:sqlite`, `node:crypto`, `util.parseArgs` — zero npm dependencies)
-- An x-browser MCP server configured in Claude Code, exposing `mcp__x-browser__x_search` and `mcp__x-browser__x_auth_status`
-- A logged-in X (Twitter) session in Chrome, Firefox, or Safari (for cookie-based auth via `refresh_creds.js`), **or** manually obtained X credentials / `auth_token` + `ct0` cookies
+- The `x-browser-mcp` server binary (Go), installed locally so `collect.js` can drive it over REST on `127.0.0.1:18110` — not an MCP server registered in Claude Code
+- A logged-in X (Twitter) session in Chrome (`x-session.sh` reads Chrome's cookie DB to seed `x-browser-mcp`'s session; if that fails it falls back to an interactive login in an opened Chrome window)
 
 ### Step 1 — Verify Node version
 
@@ -145,26 +145,34 @@ For manual setup, create or edit `~/.x-creds` with the same template, fill in th
 chmod 600 ~/.x-creds
 ```
 
-### Step 5 — Configure the x-browser MCP server
+### Step 5 — Install x-browser-mcp
 
-This skill calls `mcp__x-browser__x_search` and `mcp__x-browser__x_auth_status`. Wire up an MCP server that exposes those tools (any X scraping MCP will work, as long as the tool names match). Make sure it picks up `TWITTER_AUTH_TOKEN` / `TWITTER_CT0` from `~/.x-creds` — e.g. in your Claude Code config:
+There is no MCP server to register in Claude Code — `collect.js x` talks to
+a local REST service instead. Install the `x-browser-mcp` binary (Go) at
+`$XTIPS_SERVER_DIR` (default `~/.config/opencode/tools/x-browser-mcp`; the
+binary itself is `x-browser-mcp` inside that directory).
 
-```json
-{
-  "mcpServers": {
-    "x-browser": {
-      "command": "node",
-      "args": ["/path/to/x-browser-mcp/dist/server.js"],
-      "env": {
-        "TWITTER_AUTH_TOKEN": "${TWITTER_AUTH_TOKEN}",
-        "TWITTER_CT0": "${TWITTER_CT0}"
-      }
-    }
-  }
-}
-```
+Session bootstrap is fully automatic — `collect.js x` runs `x-session.sh`
+as an idempotent preflight before every collection:
 
-Restart Claude Code so the MCP server and the new skill are picked up.
+1. Confirms Google Chrome is installed at the expected macOS path
+   (`ROD_BROWSER_BIN` must point at Chrome — Firefox makes the underlying
+   `rod` browser driver fail before any network call).
+2. Health-checks `http://127.0.0.1:18110/health`; if the server isn't up,
+   starts it with `ROD_BROWSER_BIN` set to Chrome, `X_BROWSER_PROXY` taken
+   from `$HTTPS_PROXY`, and `-user-data-dir ""` — the empty user-data-dir is
+   what puts the server into cookie mode (a non-empty value makes it ignore
+   `x_session_cookies.json`).
+3. Checks `/api/v1/login/status` for `"state":"ready"`. If it's already
+   ready, nothing further happens.
+4. If not ready, imports cookies from your live, logged-in Chrome profile
+   via `lib/chrome-cookies.js` into `x_session_cookies.json`, then re-checks
+   status.
+5. Only if that import doesn't produce a ready session does it fall back to
+   an interactive login: it calls `/api/v1/login/start`, which opens a
+   Chrome window for you to log into X in. Close that window, then re-run
+   `collect.js`. This is the one case where the preflight exits non-zero
+   (code 2) and needs you to act before continuing.
 
 ### Step 6 — Verify
 
@@ -253,6 +261,18 @@ The repo ships with the maintainer's current rules.jsonl / INDEX.md / decisions.
 - Never auto-apply rules to `CLAUDE.md` / settings / agents. Always show a diff and ask first.
 - Keep rule text terse and imperative. No "I think", no emojis, no hashtags.
 - Dedup is the point: running `fetch` twice over the same window increments `seen` on existing rules, not creates duplicates.
+
+## Legacy scripts
+
+These ship alongside the skill from the opencode-fork consolidation but are
+not part of the `collect.js` flow and need updating before use — see the
+header comment in each file for the specific breakage:
+
+| Script | Status |
+| --- | --- |
+| `add_opencode_tips.js` | Targets the pre-v2 `store.js` schema; its `--bookmarks` flag is rejected by the current `store.js add`. |
+| `generate_qwen_rules.js` | Parses `INDEX.md` by column index; `parts[4]` used to be `likes`, is now `target`. |
+| `diagnose.sh` | Starts `x-browser-mcp` with `ROD_BROWSER_BIN` pointing at Firefox, which `x-session.sh` documents as fatal. |
 
 ## Upgrading from the 0.1.x (Python) version
 

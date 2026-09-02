@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// LEGACY (pre-v2 schema, not wired into collect.js): targets the old
+// store.js CLI. `--bookmarks` is rejected by parseArgs({strict:true}) in
+// the current store.js add — every call here throws
+// ERR_PARSE_ARGS_UNKNOWN_OPTION. Needs updating before use.
+
 // Script to add useful opencode tips to the x-claude-tips database
 
 import { execSync } from 'child_process';
