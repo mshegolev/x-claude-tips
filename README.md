@@ -163,21 +163,42 @@ as an idempotent preflight before every collection:
 1. Confirms Google Chrome is installed at the expected macOS path
    (`ROD_BROWSER_BIN` must point at Chrome — Firefox makes the underlying
    `rod` browser driver fail before any network call).
-2. Health-checks `http://127.0.0.1:18110/health`; if the server isn't up,
+2. Makes sure the cookie file's directory exists with mode `0700`, and
+   migrates an old cookie file if it finds one (see "Where the session
+   cookies live" below).
+3. Health-checks `http://127.0.0.1:18110/health`; if the server isn't up,
    starts it with `ROD_BROWSER_BIN` set to Chrome, `X_BROWSER_PROXY` taken
-   from `$HTTPS_PROXY`, and `-user-data-dir ""` — the empty user-data-dir is
+   from `$HTTPS_PROXY`, `-user-data-dir ""` — the empty user-data-dir is
    what puts the server into cookie mode (a non-empty value makes it ignore
-   `x_session_cookies.json`).
-3. Checks `/api/v1/login/status` for `"state":"ready"`. If it's already
+   the cookie file) — and `-cookies <path>` so the server reads exactly the
+   file the preflight writes.
+4. Reads `session_file` from `/api/v1/login/status` and compares it with
+   that path. `/health` answers `"ok":true` for a server in profile mode or
+   on an older cookie path too, and such a server silently ignores the
+   cookies we write — so on a mismatch the preflight says what was wrong on
+   stderr, stops the process listening on port 18110, and starts a correctly
+   configured one.
+5. Checks `/api/v1/login/status` for `"state":"ready"`. If it's already
    ready, nothing further happens.
-4. If not ready, imports cookies from your live, logged-in Chrome profile
-   via `lib/chrome-cookies.js` into `x_session_cookies.json`, then re-checks
-   status.
-5. Only if that import doesn't produce a ready session does it fall back to
+6. If not ready, imports cookies from your live, logged-in Chrome profile
+   via `lib/chrome-cookies.js` into the cookie file, then re-checks status.
+7. Only if that import doesn't produce a ready session does it fall back to
    an interactive login: it calls `/api/v1/login/start`, which opens a
    Chrome window for you to log into X in. Close that window, then re-run
    `collect.js`. This is the one case where the preflight exits non-zero
    (code 2) and needs you to act before continuing.
+
+#### Where the session cookies live
+
+The cookie file holds a live X session — anyone who reads it is logged in as
+you. It is written to `~/.config/x-claude-tips/x_session_cookies.json`
+(directory `0700`, file `0600`), deliberately **outside every git working
+tree**: it used to sit next to the server binary in `$XTIPS_SERVER_DIR`,
+whose `.gitignore` does not cover it, so a single `git add -A` there would
+have committed your account credentials. If the preflight still finds a file
+at the old location it *moves* it to the new path — a move, not a copy, so
+nothing is left behind. Override the path with `XTIPS_COOKIES` if you need
+to; keep it out of a repository.
 
 ### Step 6 — Verify
 
