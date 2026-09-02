@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { classify, filterItems, DROP_REASONS } from '../lib/noise.js';
 
+// Explicit escape for typographic apostrophe — survives transcription
+const CURLY = '\u2019'; // RIGHT SINGLE QUOTATION MARK
+
 test('drops BREAKING NEWS bait with and without emoji', () => {
   assert.equal(classify('🚨 BREAKING NEWS! The engineer who created Claude Code from scratch just released a 28-minute video'), DROP_REASONS.BAIT);
   assert.equal(classify('BREAKING NEWS! The engineer who built Claude Code from scratch just released a 28-minute video'), DROP_REASONS.BAIT);
@@ -19,7 +22,7 @@ test('drops listicles with words between number and noun', () => {
 test('drops announcements', () => {
   assert.equal(classify('Announcing /variate. An open source design skill to iterate on UIs'), DROP_REASONS.ANNOUNCEMENT);
   assert.equal(classify('INTRODUCING OPEN ANALYTICS DESIGN SKILL'), DROP_REASONS.ANNOUNCEMENT);
-  assert.equal(classify("Today, I'm open-sourcing /fuck-cancer, an AI skill that helps patients"), DROP_REASONS.ANNOUNCEMENT);
+  assert.equal(classify(`Today, I${CURLY}m open-sourcing /fuck-cancer, an AI skill that helps patients`), DROP_REASONS.ANNOUNCEMENT);
 });
 
 test('drops link-only posts', () => {
@@ -38,7 +41,7 @@ test('keeps concrete rules', () => {
 });
 
 test('drops announcements with both ASCII and typographic apostrophes', () => {
-  assert.equal(classify("Today, I'm open-sourcing /cmd, an AI tool"), DROP_REASONS.ANNOUNCEMENT);
+  assert.equal(classify(`Today, I${CURLY}m open-sourcing /cmd, an AI tool`), DROP_REASONS.ANNOUNCEMENT);
   assert.equal(classify("Today, I'm open-sourcing /cmd, an AI tool"), DROP_REASONS.ANNOUNCEMENT);
 });
 
