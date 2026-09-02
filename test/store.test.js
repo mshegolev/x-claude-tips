@@ -73,6 +73,44 @@ test('index has no bookmarks column', () => {
   assert.ok(idx.includes('kinds'), 'kinds column must be present');
 });
 
+// MINOR: --kind was not validated like --target/--status, so `--kind mastodon`
+// printed a raw `unknown kind` stack out of tierOf().
+test('unknown kind is rejected with a usage error, not a stack', () => {
+  const base = mkdtempSync(join(tmpdir(), 'xt-'));
+  let err;
+  try {
+    runIn(base, ['add', '--text', 'Some rule.', '--target', 'other',
+      '--source', '1', '--kind', 'mastodon']);
+  } catch (e) {
+    err = e;
+  }
+  assert.ok(err, 'must exit non-zero');
+  assert.equal(err.status, 2);
+  assert.match(String(err.stderr), /invalid choice: 'mastodon'/);
+  assert.doesNotMatch(String(err.stderr), /at .*schema\.js/);
+});
+
+// MINOR: store.js reintroduced `kind === 'x' ? {...} : null`, the branch the
+// Task-2 ruling removed because stage-3 github sources need {stars, forks}.
+test('metrics are passed through regardless of kind', () => {
+  const base = mkdtempSync(join(tmpdir(), 'xt-'));
+  runIn(base, ['add', '--text', 'A docs rule with metrics.', '--target', 'hook',
+    '--source', 'docs:m1', '--kind', 'docs', '--likes', '7', '--retweets', '3']);
+  const r = JSON.parse(readFileSync(join(base, 'rules.jsonl'), 'utf8').trim());
+  assert.deepEqual(r.sources[0].metrics, { likes: 7, retweets: 3 });
+});
+
+// MINOR: the staging item's collected_at was discarded and today() stamped
+// instead, so a rule extracted the morning after a run got the wrong date.
+test('add uses the source timestamp when the caller supplies one', () => {
+  const base = mkdtempSync(join(tmpdir(), 'xt-'));
+  runIn(base, ['add', '--text', 'A rule collected yesterday.', '--target', 'other',
+    '--source', '42', '--kind', 'x', '--likes', '1200',
+    '--collected-at', '2026-09-01T23:41:02']);
+  const r = JSON.parse(readFileSync(join(base, 'rules.jsonl'), 'utf8').trim());
+  assert.equal(r.sources[0].collected_at, '2026-09-01T23:41:02');
+});
+
 test('bookmarks flag is rejected', () => {
   const base = mkdtempSync(join(tmpdir(), 'xt-'));
   assert.throws(() => runIn(base, ['add', '--text', 'x', '--target', 'other',

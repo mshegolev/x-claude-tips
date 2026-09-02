@@ -101,8 +101,14 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
      --author <handle> \
      --url <tweet_url> \
      --likes <N> --retweets <N> \
-     --kind x
+     --kind x \
+     --collected-at <collected_at элемента из стейджинга>
    ```
+   `--collected-at` передавай всегда: без него источник получит сегодняшнюю
+   дату, а не дату прогона (правило, извлечённое наутро, записало бы чужой
+   день). `--kind` принимает только `docs`, `changelog`, `lessons`,
+   `github`, `x`.
+
    The store returns `NEW r_XXXX` / `DUPE r_XXXX consensus=N` / exits with `SIMILAR r_XXXX(0.xx)` on stderr (code 2) if near-duplicate.
 
 6. On `SIMILAR`: show the user both texts (`store.js show <existing>` vs. the new one) and ask: merge (variant), add separately (`--force`), or skip. Default action: show, don't auto-decide.

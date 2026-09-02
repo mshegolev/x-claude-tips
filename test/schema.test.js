@@ -23,11 +23,28 @@ test('sourceId is stable and namespaced by kind', () => {
   assert.match(a, /^docs:[0-9a-f]{12}$/);
 });
 
-test('makeSource keeps metrics null for non-x kinds', () => {
+// The old name claimed kind-conditional nulling that lib/schema.js has never
+// implemented; it only passed because it passed no metrics. makeSource is
+// deliberately kind-agnostic — stage-3 github sources carry {stars, forks}.
+test('makeSource defaults metrics to null when the caller supplies none', () => {
   const s = makeSource({ id: 'docs:abc', kind: 'docs', url: 'u', ref: 'r' });
   assert.equal(s.metrics, null);
   assert.equal(s.kind, 'docs');
   assert.ok(s.collected_at);
+});
+
+test('makeSource passes metrics through for any kind', () => {
+  const gh = makeSource({
+    id: 'github:abc', kind: 'github', metrics: { stars: 900, forks: 40 },
+  });
+  assert.deepEqual(gh.metrics, { stars: 900, forks: 40 });
+  const docs = makeSource({ id: 'docs:abc', kind: 'docs', metrics: { likes: 5 } });
+  assert.deepEqual(docs.metrics, { likes: 5 });
+});
+
+test('makeSource keeps a caller-supplied collected_at', () => {
+  const s = makeSource({ id: 'x:1', kind: 'x', collectedAt: '2026-09-01' });
+  assert.equal(s.collected_at, '2026-09-01');
 });
 
 test('deriveRuleFields takes max tier and counts distinct sources', () => {

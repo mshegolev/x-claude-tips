@@ -13,7 +13,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { makeSource, deriveRuleFields } from './lib/schema.js';
+import { makeSource, deriveRuleFields, TIERS } from './lib/schema.js';
 
 const BASE = process.env.XTIPS_BASE || join(homedir(), '.claude/knowledge/x-tips');
 const RULES = join(BASE, 'rules.jsonl');
@@ -124,17 +124,18 @@ function cmdAdd(opts) {
   const rules = loadRules();
   const key = hashKey(opts.text);
   const date = today();
-  const kind = opts.kind || 'x';
   const source = makeSource({
     id: opts.source,
-    kind,
+    kind: opts.kind || 'x',
     author: opts.author || '',
     url: opts.url || '',
     ref: opts.ref || '',
-    metrics: kind === 'x'
-      ? { likes: opts.likes | 0, retweets: opts.retweets | 0 }
-      : null,
-    collectedAt: date,
+    // Метрики прокидываются как есть, без ветки по kind: у stage-3
+    // github-источников это {stars, forks}, а не {likes, retweets}.
+    metrics: opts.metrics ?? null,
+    // Дата сбора принадлежит источнику. Правило, извлечённое наутро после
+    // прогона, иначе записало бы сегодняшнее число вместо даты прогона.
+    collectedAt: opts.collectedAt || date,
   });
 
   for (const r of rules) {
@@ -348,10 +349,11 @@ function dispatch(argv) {
           source: { type: 'string' },
           author: { type: 'string', default: '' },
           url: { type: 'string', default: '' },
-          likes: { type: 'string', default: '0' },
-          retweets: { type: 'string', default: '0' },
+          likes: { type: 'string' },
+          retweets: { type: 'string' },
           kind: { type: 'string', default: 'x' },
           ref: { type: 'string', default: '' },
+          'collected-at': { type: 'string' },
           force: { type: 'boolean', default: false },
         },
         strict: true,
@@ -359,16 +361,20 @@ function dispatch(argv) {
       requireOne(values.text, 'text');
       requireOne(values.source, 'source');
       checkChoice(values.target, 'target', TARGETS);
+      checkChoice(values.kind, 'kind', Object.keys(TIERS));
+      const hasMetrics = values.likes != null || values.retweets != null;
       cmdAdd({
         text: values.text,
         target: values.target,
         source: values.source,
         author: values.author,
         url: values.url,
-        likes: intOpt(values.likes),
-        retweets: intOpt(values.retweets),
+        metrics: hasMetrics
+          ? { likes: intOpt(values.likes), retweets: intOpt(values.retweets) }
+          : null,
         kind: values.kind,
         ref: values.ref,
+        collectedAt: values['collected-at'],
         force: values.force,
       });
       break;
