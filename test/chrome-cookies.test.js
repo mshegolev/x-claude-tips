@@ -6,9 +6,40 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import {
-  deriveKey, decryptValue, writeCookieFile, withTempCopy,
+  COOKIE_QUERY, deriveKey, decryptValue, writeCookieFile, withTempCopy,
 } from '../lib/chrome-cookies.js';
+
+// FINDING I1: `host_key LIKE '%x.com'` also matched vertex.com, mx.com and
+// linx.com. Combined with the generic cookie names auth_token / ct0, an
+// unrelated site's session token could be decrypted, written into the cookie
+// file, and then sent to x.com by the browser. The query is exercised against
+// a throwaway SQLite DB — never the real Chrome profile.
+function hostsSelectedBy(query, hosts) {
+  const dir = mkdtempSync(join(tmpdir(), 'ck-sql-'));
+  const db = join(dir, 'Cookies');
+  const values = hosts
+    .map((h) => `('auth_token', '${h}', 'deadbeef')`)
+    .join(', ');
+  execFileSync('sqlite3', [db,
+    'CREATE TABLE cookies (name TEXT, host_key TEXT, encrypted_value BLOB);'
+    + ` INSERT INTO cookies VALUES ${values};`]);
+  const rows = execFileSync('sqlite3', [db, query], { encoding: 'utf8' });
+  return rows.trim().split('\n').filter(Boolean).map((r) => r.split('|')[1]);
+}
+
+test('cookie query selects x.com and its subdomains only', () => {
+  const selected = hostsSelectedBy(COOKIE_QUERY, [
+    'x.com', '.x.com', 'api.x.com', 'vertex.com', '.vertex.com', 'mx.com',
+    'linx.com', 'notx.com',
+  ]);
+  assert.deepEqual(selected.sort(), ['.x.com', 'api.x.com', 'x.com']);
+});
+
+test('cookie query does not select a vertex.com row', () => {
+  assert.deepEqual(hostsSelectedBy(COOKIE_QUERY, ['vertex.com']), []);
+});
 
 test('deriveKey matches Chrome KDF parameters', () => {
   const key = deriveKey('test-password');
