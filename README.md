@@ -96,6 +96,12 @@ cp -n knowledge/x-tips/INDEX.md \
 
 ### Step 4 — Provide X credentials
 
+> **Внимание:** `refresh_creds.js` и `~/.x-creds` относятся к twikit-варианту
+> MCP-сервера. Go-сервер `x-browser-mcp`, на который рассчитан текущий
+> `collect.js`, переменные `TWITTER_AUTH_TOKEN` / `TWITTER_CT0` не читает —
+> он берёт сессию из `x_session_cookies.json` (см. `x-session.sh`).
+> Файлы оставлены для совместимости со старой установкой.
+
 **Easier path on macOS:** log in to x.com in Chrome, Firefox, or Safari, then run:
 
 ```bash
