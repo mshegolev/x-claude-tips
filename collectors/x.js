@@ -28,9 +28,17 @@ export function passesEngagement(item) {
 
 // Сервер отдаёт видимый текст карточки (~280 символов), поэтому длинные
 // треды приходят обрезанными. Помечаем, чтобы извлечение не достраивало смысл.
+// Проверку на обрыв делаем по тексту без хвостовой ссылки: законченное
+// предложение с приложенной ссылкой на конце — не обрыв, а обычный твит
+// с медиа/линком.
+function withoutTrailingLinks(text) {
+  return text.replace(/(?:\s+https?:\/\/\S+)+\s*$/u, '').trim();
+}
+
 export function toItem(post) {
   const text = post.text || '';
-  const truncated = text.length > 200 && !/[.!?)"'’]\s*$/.test(text.trim());
+  const forTruncationCheck = withoutTrailingLinks(text);
+  const truncated = text.length > 200 && !/[.!?)"'’]\s*$/.test(forTruncationCheck);
   return {
     id: post.id,
     kind,
@@ -60,14 +68,20 @@ function search(query, limit) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function collect({ since, limit = 30 }) {
+// searchFn/sleepFn — точки внедрения для тестов (без сети, без реального
+// ожидания). По умолчанию — настоящий поиск и настоящий sleep.
+export async function collect({ since, limit = 30, searchFn = search, sleepFn = sleep }) {
   const items = [];
+  const errors = [];
   const queries = QUERIES(since);
   for (let i = 0; i < queries.length; i++) {
-    if (i > 0) await sleep(MIN_INTERVAL_MS);
-    for (const post of search(queries[i], limit)) {
-      items.push(toItem(post));
+    if (i > 0) await sleepFn(MIN_INTERVAL_MS);
+    try {
+      const posts = await searchFn(queries[i], limit);
+      for (const post of posts) items.push(toItem(post));
+    } catch (err) {
+      errors.push({ query: queries[i], error: err.message });
     }
   }
-  return items.filter(passesEngagement);
+  return { items: items.filter(passesEngagement), errors, total: queries.length };
 }

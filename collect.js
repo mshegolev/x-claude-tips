@@ -46,7 +46,7 @@ if (kind === 'x') {
 }
 
 const mod = await import(join(HERE, 'collectors', `${kind}.js`));
-const raw = await mod.collect({ since });
+const { items: raw, errors, total } = await mod.collect({ since });
 const { kept, dropped } = values['no-filter']
   ? { kept: raw, dropped: [] }
   : filterItems(raw);
@@ -56,8 +56,16 @@ mkdirSync(dir, { recursive: true });
 const out = join(dir, `${runId()}.json`);
 writeFileSync(out, JSON.stringify({
   kind, tier: mod.tier, since, collected: raw.length,
-  items: kept, dropped,
+  items: kept, dropped, errors,
 }, null, 2));
 
 console.log(`${kind}: collected ${raw.length}, kept ${kept.length}, dropped ${dropped.length}`);
+if (errors.length > 0) {
+  console.log(`${kind}: ${errors.length} of ${total} queries failed (see staging file)`);
+}
 console.log(`staging -> ${out}`);
+
+// Every query failed: this is a real failure, not partial success.
+if (total > 0 && errors.length === total) {
+  process.exit(1);
+}

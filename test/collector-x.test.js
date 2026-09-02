@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { filterItems } from '../lib/noise.js';
-import { passesEngagement, toItem } from '../collectors/x.js';
+import {
+  passesEngagement, toItem, collect, QUERIES,
+} from '../collectors/x.js';
 
 function posts(n) {
   const url = new URL(`./fixtures/q${n}.json`, import.meta.url);
@@ -64,4 +66,56 @@ test('filtering fixture q1 leaves the concrete CLAUDE.md rules', () => {
   const authors = kept.map((i) => i.author);
   assert.ok(authors.includes('bentlegen'));
   assert.ok(authors.includes('tobi'));
+});
+
+test('a complete sentence with a trailing link is not truncated', () => {
+  // Реальный пример из фикстур: "...first 10 minutes." + отдельная
+  // t.co-ссылка на конце — законченное предложение с приложенным медиа,
+  // не обрыв.
+  const text = 'many people asked me how to write CLAUDE.md or AGENTS.md, '
+    + 'and i see lots of bad advice flying around so i took some time to write '
+    + 'down a full and complete guide with every detail spelled out in the end. '
+    + 'https://t.co/QLAWfVhCFV';
+  const it = toItem({ id: '3', text, author: { screen_name: 'c' }, url: 'u', metrics: { likes: 1, reposts: 1 } });
+  assert.ok(text.length > 200, 'text must exceed the truncation floor');
+  assert.equal(it.truncated, false);
+});
+
+test('a genuine mid-phrase cutoff over 200 chars is still truncated', () => {
+  const cutText = 'many people asked me how to write CLAUDE.md or AGENTS.md, '
+    + 'and i see lots of bad advice flying around so i took some time to write '
+    + 'down a guide in https://t.co/QLAWfVhCFV tl;dr - handwrite your user level '
+    + "AGENTS.md - for project level ones, you don't write it. you train it like";
+  const cut = toItem({ id: '4', text: cutText, author: { screen_name: 'a' }, url: 'u', metrics: { likes: 1, reposts: 1 } });
+  assert.ok(cutText.length > 200);
+  assert.equal(cut.truncated, true);
+});
+
+test('short text is never truncated, trailing link or not', () => {
+  const withLink = toItem({ id: '5', text: 'short tip. https://t.co/abc', author: { screen_name: 'd' }, url: 'u', metrics: { likes: 1, reposts: 1 } });
+  assert.ok(withLink.text.length <= 200);
+  assert.equal(withLink.truncated, false);
+});
+
+test('collect() isolates a failing query and still returns the rest, recording the error', async () => {
+  const since = '2026-08-01';
+  const queries = QUERIES(since);
+  const post = (n) => ({
+    id: `p${n}`,
+    text: `tip number ${n} about claude code`,
+    author: { screen_name: 'AnthropicAI' },
+    url: 'u',
+    metrics: { likes: 300, reposts: 1 },
+  });
+  const failingQuery = queries[2];
+  const searchFn = async (query) => {
+    if (query === failingQuery) throw new Error('boom');
+    return [post(query.length)];
+  };
+  const result = await collect({ since, searchFn, sleepFn: async () => {} });
+  assert.equal(result.total, queries.length);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0].query, failingQuery);
+  assert.equal(result.errors[0].error, 'boom');
+  assert.equal(result.items.length, queries.length - 1);
 });
