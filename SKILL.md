@@ -49,18 +49,29 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
 
 ### Steps
 
-1. Запусти `node collect.js x --days <days>` (по умолчанию 14). Раннер сам
+1. Запусти `node ~/.claude/skills/x-claude-tips/collect.js x --days <days>`
+   (по умолчанию 14; скилл работает с cwd пользовательского проекта, поэтому
+   путь абсолютный). Раннер сам
    поднимет сервер, подложит куки и отработает лимиты; отдельно проверять
    авторизацию не нужно. Ненулевой код возврата означает, что нужен
    интерактивный логин — сообщение скажет, что делать, и на этом остановись.
 
 2. Прочитай свежий файл стейджинга из
-   `~/.claude/knowledge/x-tips/staging/x/<run-id>.json`. В нём `items` —
-   прошедшее фильтр, `dropped` — отброшенное с причиной. Просмотри `dropped`
-   на ложные срабатывания и скажи о них пользователю. Если файл содержит
-   непустой `errors` (список `{query, error}`), скажи пользователю, какие
-   запросы не отработали — сбор продолжился и всё равно застейджил то, что
-   собрал по остальным.
+   `~/.claude/knowledge/x-tips/staging/x/<run-id>.json`. Поля:
+   - `collected` — сколько постов пришло от коллектора ДО любых фильтров;
+   - `items` — прошедшее оба фильтра;
+   - `dropped` — отброшенное, по записи `{id, reason, author, text}` на
+     каждый пост. `text` лежит здесь именно для того, чтобы аудит фильтра
+     не требовал повторного запроса к X. Причины: `engagement` (не добрал
+     порог вовлечённости), `bait`, `listicle`, `announcement`, `link-only`,
+     `clone`;
+   - `errors` — список `{query, error}`.
+
+   `collected` = `items` + `dropped`, сходится всегда. Просмотри `dropped`
+   на ложные срабатывания (текст рядом — читать можно прямо там) и скажи о
+   них пользователю. Если `errors` непустой, скажи, какие запросы не
+   отработали — сбор продолжился и всё равно застейджил то, что собрал по
+   остальным.
 
 3. Из `items` извлеки правила. Для записей с `truncated: true` не достраивай
    смысл за обрывом текста: правило либо выводится из уцелевшей части, либо
@@ -100,16 +111,20 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
 
 ### Engagement threshold rationale
 
-The `x` collector (`collectors/x.js`) applies the engagement filter itself, before anything reaches staging:
+`collect.js` applies the engagement threshold (`passesEngagement`, exported
+from `collectors/x.js`) as the first of two filters, and records every
+rejection in `dropped` with reason `engagement` — the collector itself no
+longer drops anything silently, so the threshold can be retuned from a
+staging file without re-querying X:
 
 - `likes >= 1000` OR `retweets >= 150` = clear resonance / amplification
 - `likes >= 200` for Anthropic staff and named practitioners (trusted source, lower bar)
 - `bookmarks` is not a threshold input — the server this collector talks to never returns that metric
 
 There is no per-run threshold override; adjust the window instead with
-`--since YYYY-MM-DD` / `--days N`, or pass `--no-filter` to skip the noise
-filter (Step 2 above) and see everything the engagement filter already let
-through.
+`--since YYYY-MM-DD` / `--days N`, or pass `--no-filter` to skip BOTH the
+engagement filter and the noise filter and stage everything the collector
+returned.
 
 ## Subcommand: review
 

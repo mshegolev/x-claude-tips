@@ -83,5 +83,8 @@ export async function collect({ since, limit = 30, searchFn = search, sleepFn = 
       errors.push({ query: queries[i], error: err.message });
     }
   }
-  return { items: items.filter(passesEngagement), errors, total: queries.length };
+  // Порог вовлечённости здесь НЕ применяется: он такой же фильтр, как
+  // шумовой, и его отбраковка должна попадать в dropped стейджинга, иначе
+  // его нельзя перенастроить офлайн. Применяет его collect.js.
+  return { items, errors, total: queries.length };
 }

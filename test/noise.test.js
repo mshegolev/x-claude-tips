@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, filterItems, DROP_REASONS } from '../lib/noise.js';
+import { classify, dropEntry, filterItems, DROP_REASONS } from '../lib/noise.js';
 
 // Explicit escape for typographic apostrophe — survives transcription
 const CURLY = '\u2019'; // RIGHT SINGLE QUOTATION MARK
@@ -57,9 +57,46 @@ test('filterItems collapses clones of one thread', () => {
   assert.equal(dropped.length, 2);
 });
 
-test('filterItems records a reason for every dropped item', () => {
-  const items = [{ id: '9', text: 'Announcing /variate. An open source design skill.' }];
+// FINDING I2: an id and a label is not an audit. SKILL.md tells the reader to
+// review `dropped` for false positives, which is impossible without the text
+// unless X is queried again — the exact thing staging exists to avoid.
+test('filterItems records reason, text and author for every dropped item', () => {
+  const items = [{
+    id: '9',
+    author: 'someone',
+    text: 'Announcing /variate. An open source design skill.',
+  }];
   const { kept, dropped } = filterItems(items);
   assert.equal(kept.length, 0);
-  assert.deepEqual(dropped, [{ id: '9', reason: DROP_REASONS.ANNOUNCEMENT }]);
+  assert.deepEqual(dropped, [{
+    id: '9',
+    reason: DROP_REASONS.ANNOUNCEMENT,
+    author: 'someone',
+    text: 'Announcing /variate. An open source design skill.',
+  }]);
+});
+
+test('dropped clones carry their text too', () => {
+  const text = 'In every one of our repos CLAUDE.md is a symlink to AGENTS.md Can we retire this already';
+  const { dropped } = filterItems([
+    { id: '1', author: 'a', text },
+    { id: '2', author: 'b', text },
+  ]);
+  assert.equal(dropped.length, 1);
+  assert.equal(dropped[0].reason, DROP_REASONS.CLONE);
+  assert.equal(dropped[0].text, text);
+  assert.equal(dropped[0].author, 'b');
+});
+
+test('dropEntry shape is identical for the engagement reason', () => {
+  const entry = dropEntry(
+    { id: '3', author: 'c', text: 'a short low-engagement post' },
+    DROP_REASONS.ENGAGEMENT,
+  );
+  assert.deepEqual(entry, {
+    id: '3',
+    reason: 'engagement',
+    author: 'c',
+    text: 'a short low-engagement post',
+  });
 });

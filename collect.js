@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { filterItems } from './lib/noise.js';
+import { DROP_REASONS, dropEntry, filterItems } from './lib/noise.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BASE = process.env.XTIPS_BASE || join(homedir(), '.claude/knowledge/x-tips');
@@ -39,7 +39,16 @@ if (!kind) {
   process.exit(1);
 }
 
-const since = values.since || defaultSince(Number(values.days));
+// --days abc сделало бы since:NaN-NaN-NaN и потратило бы живой запрос из
+// бюджета 8 поисков / 10 минут. Проверяем до любого обращения к сети.
+const days = Number(values.days);
+if (!Number.isFinite(days) || days <= 0) {
+  process.stderr.write(
+    `collect.js: --days must be a positive number, got '${values.days}'\n`);
+  process.exit(2);
+}
+
+const since = values.since || defaultSince(days);
 
 if (kind === 'x') {
   execFileSync(join(HERE, 'x-session.sh'), { stdio: 'inherit' });
@@ -47,9 +56,27 @@ if (kind === 'x') {
 
 const mod = await import(join(HERE, 'collectors', `${kind}.js`));
 const { items: raw, errors, total } = await mod.collect({ since });
-const { kept, dropped } = values['no-filter']
-  ? { kept: raw, dropped: [] }
-  : filterItems(raw);
+
+// Порог вовлечённости — такой же фильтр, как шумовой, и отбраковка по нему
+// должна быть видна в стейджинге: раньше он применялся внутри коллектора,
+// посты исчезали без единой записи, и это был единственный слой, который
+// нельзя было перенастроить офлайн. --no-filter снимает ОБА фильтра.
+const passesEngagement = typeof mod.passesEngagement === 'function'
+  ? mod.passesEngagement
+  : () => true;
+
+let kept = raw;
+let dropped = [];
+if (!values['no-filter']) {
+  const survivors = [];
+  for (const item of raw) {
+    if (passesEngagement(item)) survivors.push(item);
+    else dropped.push(dropEntry(item, DROP_REASONS.ENGAGEMENT));
+  }
+  const noise = filterItems(survivors);
+  kept = noise.kept;
+  dropped = dropped.concat(noise.dropped);
+}
 
 const dir = join(BASE, 'staging', kind);
 mkdirSync(dir, { recursive: true });
