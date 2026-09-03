@@ -9,11 +9,11 @@
     "url": "https://github.com/mshegolev/x-claude-tips.git"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check store.js && node --check refresh_creds.js && node --check update.js && bash -n install.sh"
+    "check": "node --check store.js && node --check collect.js && node --check migrate-v2.js && node --check lib/schema.js && node --check lib/noise.js && node --check lib/chrome-cookies.js && node --check collectors/x.js && node --check refresh_creds.js && node --check update.js && bash -n install.sh && bash -n x-session.sh"
   },
   "bin": {
     "x-claude-tips-store": "./store.js",
@@ -23,6 +23,11 @@
   "files": [
     "SKILL.md",
     "store.js",
+    "collect.js",
+    "migrate-v2.js",
+    "x-session.sh",
+    "lib",
+    "collectors",
     "refresh_creds.js",
     "update.js",
     "install.sh",

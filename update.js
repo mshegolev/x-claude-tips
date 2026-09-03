@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -20,9 +21,17 @@ const SELF_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_TARGET_DIR = join(homedir(), '.claude/skills/x-claude-tips');
 const DEFAULT_REPO_URL = 'https://github.com/mshegolev/x-claude-tips.git';
 
+// Everything the installed skill needs in order to run. Directory entries are
+// copied recursively — store.js imports lib/schema.js and collect.js imports
+// collectors/<kind>.js, so shipping the loose files alone bricks the install.
 export const INSTALL_FILES = [
   'SKILL.md',
   'store.js',
+  'collect.js',
+  'migrate-v2.js',
+  'x-session.sh',
+  'lib',
+  'collectors',
   'refresh_creds.js',
   'update.js',
   'install.sh',
@@ -31,7 +40,15 @@ export const INSTALL_FILES = [
   'LICENSE',
 ];
 
-const EXECUTABLE_FILES = new Set(['store.js', 'refresh_creds.js', 'update.js', 'install.sh']);
+const EXECUTABLE_FILES = new Set([
+  'store.js',
+  'collect.js',
+  'migrate-v2.js',
+  'x-session.sh',
+  'refresh_creds.js',
+  'update.js',
+  'install.sh',
+]);
 
 export function parseUpdateArgs(args = process.argv.slice(2)) {
   const { values } = parseArgs({
@@ -85,6 +102,14 @@ function nextBackupDir(targetDir) {
   return candidate;
 }
 
+function isDirectory(path) {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function validateSource(sourceDir) {
   const missing = INSTALL_FILES.filter((file) => !existsSync(join(sourceDir, file)));
   if (missing.length) {
@@ -114,12 +139,14 @@ export function updateInstallation({
     actions.push({ type: 'backup', from: resolvedTarget, to: resolvedBackup });
   }
   for (const file of INSTALL_FILES) {
+    const from = join(resolvedSource, file);
     actions.push({
       type: 'copy',
       file,
-      from: join(resolvedSource, file),
+      from,
       to: join(resolvedTarget, file),
       executable: EXECUTABLE_FILES.has(file),
+      directory: isDirectory(from),
     });
   }
 
@@ -140,8 +167,9 @@ export function updateInstallation({
   mkdirSync(resolvedTarget, { recursive: true });
 
   for (const file of INSTALL_FILES) {
+    const from = join(resolvedSource, file);
     const target = join(resolvedTarget, file);
-    cpSync(join(resolvedSource, file), target, { force: true });
+    cpSync(from, target, { force: true, recursive: isDirectory(from) });
     if (EXECUTABLE_FILES.has(file)) chmodSync(target, 0o755);
   }
 
@@ -171,7 +199,7 @@ function printResult(result) {
     if (action.type === 'backup') {
       console.log(`backup ${action.from} -> ${action.to}`);
     } else if (action.type === 'copy') {
-      console.log(`copy ${action.file}`);
+      console.log(`copy ${action.file}${action.directory ? '/ (recursive)' : ''}`);
     }
   }
 }

@@ -13,8 +13,9 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { makeSource, deriveRuleFields, TIERS } from './lib/schema.js';
 
-const BASE = join(homedir(), '.claude/knowledge/x-tips');
+const BASE = process.env.XTIPS_BASE || join(homedir(), '.claude/knowledge/x-tips');
 const RULES = join(BASE, 'rules.jsonl');
 const INDEX = join(BASE, 'INDEX.md');
 const DECISIONS = join(BASE, 'decisions.jsonl');
@@ -123,30 +124,33 @@ function cmdAdd(opts) {
   const rules = loadRules();
   const key = hashKey(opts.text);
   const date = today();
-  const source = {
+  const source = makeSource({
     id: opts.source,
+    kind: opts.kind || 'x',
     author: opts.author || '',
     url: opts.url || '',
-    likes: opts.likes | 0,
-    retweets: opts.retweets | 0,
-    bookmarks: opts.bookmarks | 0,
-    date,
-  };
+    ref: opts.ref || '',
+    // Метрики прокидываются как есть, без ветки по kind: у stage-3
+    // github-источников это {stars, forks}, а не {likes, retweets}.
+    metrics: opts.metrics ?? null,
+    // Дата сбора принадлежит источнику. Правило, извлечённое наутро после
+    // прогона, иначе записало бы сегодняшнее число вместо даты прогона.
+    collectedAt: opts.collectedAt || date,
+  });
 
   for (const r of rules) {
     if (r.hash === key) {
       const existingIds = r.sources.map((s) => s.id);
       if (opts.source && !existingIds.includes(opts.source)) {
         r.sources.push(source);
-        r.seen = r.sources.length;
+        Object.assign(r, deriveRuleFields(r.sources));
         r.last_seen = date;
-        r.likes_max = Math.max(r.likes_max || 0, source.likes);
-        r.bookmarks_max = Math.max(r.bookmarks_max || 0, source.bookmarks);
-        r.retweets_max = Math.max(r.retweets_max || 0, source.retweets);
+        r.likes_max = Math.max(r.likes_max || 0, source.metrics?.likes || 0);
+        r.retweets_max = Math.max(r.retweets_max || 0, source.metrics?.retweets || 0);
         saveRules(rules);
-        console.log(`DUPE ${r.id} seen=${r.seen}`);
+        console.log(`DUPE ${r.id} consensus=${r.consensus}`);
       } else {
-        console.log(`DUPE ${r.id} seen=${r.seen} (source already present)`);
+        console.log(`DUPE ${r.id} consensus=${r.consensus} (source already present)`);
       }
       return;
     }
@@ -159,11 +163,8 @@ function cmdAdd(opts) {
     if (sim >= SIMILARITY_THRESHOLD) similar.push([r.id, sim]);
   }
   if (similar.length && !opts.force) {
-    const msg =
-      'SIMILAR ' +
-      similar.map(([i, s]) => `${i}(${s.toFixed(2)})`).join(', ') +
-      " -- rerun with --force to add anyway, or use 'merge'";
-    die(msg, 2);
+    die('SIMILAR ' + similar.map(([i, s]) => `${i}(${s.toFixed(2)})`).join(', ')
+      + " -- rerun with --force to add anyway, or use 'merge'", 2);
   }
 
   const rid = nextId(rules);
@@ -173,13 +174,12 @@ function cmdAdd(opts) {
     text: opts.text,
     target: opts.target,
     status: 'review',
-    seen: 1,
     sources: [source],
+    ...deriveRuleFields([source]),
     first_seen: date,
     last_seen: date,
-    likes_max: source.likes,
-    bookmarks_max: source.bookmarks,
-    retweets_max: source.retweets,
+    likes_max: source.metrics?.likes || 0,
+    retweets_max: source.metrics?.retweets || 0,
   };
   if (similar.length) rule.similar_to = similar.map(([i]) => i);
   rules.push(rule);
@@ -196,9 +196,8 @@ function cmdMerge(opts) {
   for (const s of src.sources) {
     if (!seenIds.has(s.id)) dst.sources.push(s);
   }
-  dst.seen = dst.sources.length;
+  Object.assign(dst, deriveRuleFields(dst.sources));
   dst.likes_max = Math.max(dst.likes_max || 0, src.likes_max || 0);
-  dst.bookmarks_max = Math.max(dst.bookmarks_max || 0, src.bookmarks_max || 0);
   dst.retweets_max = Math.max(dst.retweets_max || 0, src.retweets_max || 0);
   if (!dst.variants) dst.variants = [];
   dst.variants.push(src.text);
@@ -209,15 +208,18 @@ function cmdMerge(opts) {
     DECISIONS,
     JSON.stringify({ ts: nowIso(), action: 'merge', src: opts.src, dst: opts.dst }) + '\n',
   );
-  console.log(`merged ${opts.src} -> ${opts.dst} (seen=${dst.seen})`);
+  console.log(`merged ${opts.src} -> ${opts.dst} (consensus=${dst.consensus})`);
 }
 
 function cmdList(opts) {
   let rules = loadRules();
   if (opts.status) rules = rules.filter((r) => r.status === opts.status);
   if (opts.target) rules = rules.filter((r) => r.target === opts.target);
-  if (opts.minSeen) rules = rules.filter((r) => r.seen >= opts.minSeen);
-  rules.sort((a, b) => (b.seen - a.seen) || ((b.likes_max || 0) - (a.likes_max || 0)));
+  if (opts.minConsensus) rules = rules.filter((r) => r.consensus >= opts.minConsensus);
+  rules.sort((a, b) =>
+    (b.authority - a.authority)
+    || (b.consensus - a.consensus)
+    || ((b.likes_max || 0) - (a.likes_max || 0)));
   if (opts.limit) rules = rules.slice(0, opts.limit);
   if (opts.json) {
     console.log(JSON.stringify(rules, null, 2));
@@ -229,11 +231,11 @@ function cmdList(opts) {
   }
   const pl = (s, n) => String(s).padStart(n);
   const pr = (s, n) => String(s).padEnd(n);
-  console.log(`${pl('seen', 4)} ${pr('status', 8)} ${pr('target', 10)} ${pl('likes', 6)} ${pr('id', 7)} text`);
+  console.log(`${pl('auth', 4)} ${pl('cons', 4)} ${pr('status', 8)} ${pr('target', 10)} ${pr('kinds', 12)} ${pr('id', 7)} text`);
   for (const r of rules) {
-    const text = r.text.length <= 78 ? r.text : r.text.slice(0, 75) + '...';
+    const text = r.text.length <= 66 ? r.text : r.text.slice(0, 63) + '...';
     console.log(
-      `${pl(r.seen, 4)} ${pr(r.status, 8)} ${pr(r.target, 10)} ${pl(r.likes_max || 0, 6)} ${pr(r.id, 7)} ${text}`,
+      `${pl(r.authority, 4)} ${pl(r.consensus, 4)} ${pr(r.status, 8)} ${pr(r.target, 10)} ${pr((r.kinds || []).join(','), 12)} ${pr(r.id, 7)} ${text}`,
     );
   }
 }
@@ -268,24 +270,27 @@ function cmdStatus(opts) {
 
 function cmdIndex() {
   const rules = loadRules();
-  rules.sort((a, b) => (b.seen - a.seen) || ((b.likes_max || 0) - (a.likes_max || 0)));
+  rules.sort((a, b) =>
+    (b.authority - a.authority)
+    || (b.consensus - a.consensus)
+    || ((b.likes_max || 0) - (a.likes_max || 0)));
   const now = nowIso();
   const header = [
     '# X-Tips Knowledge Index',
     '',
     `_Regenerated: ${now} — ${rules.length} rules_`,
     '',
-    'Sort: seen desc, then likes_max desc. `seen >= 5` = consensus candidate.',
+    'Sort: authority desc, consensus desc, likes desc. `authority 3` = официальный источник.',
     '',
-    '| seen | status | target | likes | bookmarks | id | rule |',
-    '|-----:|--------|--------|------:|----------:|----|------|',
+    '| auth | cons | status | target | kinds | id | rule |',
+    '|-----:|-----:|--------|--------|-------|----|------|',
   ];
   const rows = [];
   for (const r of rules) {
     let text = r.text.replace(/\|/g, '\\|').replace(/\n/g, ' ');
     if (text.length > 110) text = text.slice(0, 107) + '...';
     rows.push(
-      `| ${r.seen} | ${r.status} | ${r.target} | ${r.likes_max || 0} | ${r.bookmarks_max || 0} | ${r.id} | ${text} |`,
+      `| ${r.authority} | ${r.consensus} | ${r.status} | ${r.target} | ${(r.kinds || []).join(',')} | ${r.id} | ${text} |`,
     );
   }
   mkdirSync(dirname(INDEX), { recursive: true });
@@ -344,9 +349,11 @@ function dispatch(argv) {
           source: { type: 'string' },
           author: { type: 'string', default: '' },
           url: { type: 'string', default: '' },
-          likes: { type: 'string', default: '0' },
-          retweets: { type: 'string', default: '0' },
-          bookmarks: { type: 'string', default: '0' },
+          likes: { type: 'string' },
+          retweets: { type: 'string' },
+          kind: { type: 'string', default: 'x' },
+          ref: { type: 'string', default: '' },
+          'collected-at': { type: 'string' },
           force: { type: 'boolean', default: false },
         },
         strict: true,
@@ -354,15 +361,20 @@ function dispatch(argv) {
       requireOne(values.text, 'text');
       requireOne(values.source, 'source');
       checkChoice(values.target, 'target', TARGETS);
+      checkChoice(values.kind, 'kind', Object.keys(TIERS));
+      const hasMetrics = values.likes != null || values.retweets != null;
       cmdAdd({
         text: values.text,
         target: values.target,
         source: values.source,
         author: values.author,
         url: values.url,
-        likes: intOpt(values.likes),
-        retweets: intOpt(values.retweets),
-        bookmarks: intOpt(values.bookmarks),
+        metrics: hasMetrics
+          ? { likes: intOpt(values.likes), retweets: intOpt(values.retweets) }
+          : null,
+        kind: values.kind,
+        ref: values.ref,
+        collectedAt: values['collected-at'],
         force: values.force,
       });
       break;
@@ -384,7 +396,8 @@ function dispatch(argv) {
         options: {
           status: { type: 'string' },
           target: { type: 'string' },
-          'min-seen': { type: 'string', default: '0' },
+          'min-consensus': { type: 'string' },
+          'min-seen': { type: 'string' }, // алиас для мышечной памяти
           limit: { type: 'string', default: '0' },
           json: { type: 'boolean', default: false },
         },
@@ -395,7 +408,7 @@ function dispatch(argv) {
       cmdList({
         status: values.status,
         target: values.target,
-        minSeen: intOpt(values['min-seen']),
+        minConsensus: intOpt(values['min-consensus'] ?? values['min-seen']),
         limit: intOpt(values.limit),
         json: values.json,
       });

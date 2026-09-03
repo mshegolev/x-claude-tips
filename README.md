@@ -4,7 +4,7 @@ A Claude Code skill that mines X (Twitter) for high-signal Claude Code / `CLAUDE
 
 ## What it does
 
-1. **Fetch** — pulls fresh, high-engagement tweets about Claude Code via the [x-browser MCP server](https://github.com/anthropics) and extracts one-line, imperative rule statements from each.
+1. **Fetch** — `node collect.js x` drives the local `x-browser-mcp` server over its REST API on `127.0.0.1:18110` to pull fresh, high-engagement tweets about Claude Code, then extracts one-line, imperative rule statements from each.
 2. **Dedupe** — every rule is hashed, and near-duplicates (Jaccard ≥ 0.7) are flagged for manual merge so the database stays clean across repeated runs.
 3. **Review** — surfaces the queue of `review`-status rules sorted by consensus (how many independent tweets mentioned the same thing).
 4. **Apply** — proposes concrete diffs to your `CLAUDE.md`, settings, hooks, agents, or skills — never auto-edits.
@@ -19,17 +19,19 @@ Twitter is the de facto release notes channel for Claude Code tips, but signal-t
 
 - macOS (the `refresh_creds.js` helper is macOS-specific; the skill itself works anywhere Claude Code runs)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and working
-- **Node.js 22.12+** (LTS; uses built-in `node:sqlite`, `node:crypto`, `util.parseArgs` — zero npm dependencies)
-- An x-browser MCP server configured in Claude Code, exposing `mcp__x-browser__x_search` and `mcp__x-browser__x_auth_status`
-- A logged-in X (Twitter) session in Chrome, Firefox, or Safari (for cookie-based auth via `refresh_creds.js`), **or** manually obtained X credentials / `auth_token` + `ct0` cookies
+- **Node.js 20.19+** (uses built-in `node:crypto` and `util.parseArgs` — zero npm dependencies; the branch is developed and tested on 20.19.6)
+- The `sqlite3` command-line tool, used by `lib/chrome-cookies.js` to read Chrome's cookie DB (`brew install sqlite` on macOS, or MacPorts' `sqlite3`). `node:sqlite` is deliberately not used — it does not exist on Node 20.
+- The `x-browser-mcp` server binary (Go), installed locally so `collect.js` can drive it over REST on `127.0.0.1:18110` — not an MCP server registered in Claude Code
+- A logged-in X (Twitter) session in Chrome (`x-session.sh` reads Chrome's cookie DB to seed `x-browser-mcp`'s session; if that fails it falls back to an interactive login in an opened Chrome window)
 
 ### Step 1 — Verify Node version
 
 ```bash
-node --version    # must be >= v22.12.0
+node --version     # must be >= v20.19.0
+sqlite3 --version  # any 3.x
 ```
 
-If older, install Node 22 LTS via [nvm](https://github.com/nvm-sh/nvm), Homebrew (`brew install node@22`), or your distro's package manager.
+If Node is older, install a current LTS via [nvm](https://github.com/nvm-sh/nvm), Homebrew (`brew install node`), or your distro's package manager.
 
 ### Step 2 — Install the skill
 
@@ -70,9 +72,14 @@ git clone https://github.com/mshegolev/x-claude-tips.git
 cd x-claude-tips
 # Skill goes here so Claude Code auto-discovers it on next start
 mkdir -p ~/.claude/skills/x-claude-tips
-cp SKILL.md store.js refresh_creds.js update.js install.sh package.json README.md LICENSE \
-   ~/.claude/skills/x-claude-tips/
+cp -R SKILL.md store.js collect.js migrate-v2.js x-session.sh \
+      lib collectors refresh_creds.js update.js install.sh \
+      package.json README.md LICENSE \
+      ~/.claude/skills/x-claude-tips/
 chmod +x ~/.claude/skills/x-claude-tips/store.js \
+         ~/.claude/skills/x-claude-tips/collect.js \
+         ~/.claude/skills/x-claude-tips/migrate-v2.js \
+         ~/.claude/skills/x-claude-tips/x-session.sh \
          ~/.claude/skills/x-claude-tips/refresh_creds.js \
          ~/.claude/skills/x-claude-tips/update.js \
          ~/.claude/skills/x-claude-tips/install.sh
@@ -80,21 +87,23 @@ chmod +x ~/.claude/skills/x-claude-tips/store.js \
 
 No `npm install` needed — the scripts use only Node built-ins.
 
-### Step 3 — Seed the knowledge base (optional)
+### Step 3 — The knowledge base
 
-The repo ships with the maintainer's `rules.jsonl` as a worked example. To start from scratch, skip this step — the store auto-creates empty files on first `add`.
+Nothing to do. The repo ships no `knowledge/` directory: `store.js` creates
+`~/.claude/knowledge/x-tips/` with empty `rules.jsonl` and `decisions.jsonl`
+on the first command that touches the store.
 
-```bash
-mkdir -p ~/.claude/knowledge/x-tips
-cp -n knowledge/x-tips/INDEX.md \
-      knowledge/x-tips/rules.jsonl \
-      knowledge/x-tips/decisions.jsonl \
-      ~/.claude/knowledge/x-tips/
-```
-
-(`-n` won't overwrite if you already have a knowledge base.)
+If you are carrying a knowledge base over from a 0.1.x install, copy your own
+files into `~/.claude/knowledge/x-tips/` and then run the schema migration —
+see "Upgrading from the 0.1.x (Python) version" below.
 
 ### Step 4 — Provide X credentials
+
+> **Внимание:** `refresh_creds.js` и `~/.x-creds` относятся к twikit-варианту
+> MCP-сервера. Go-сервер `x-browser-mcp`, на который рассчитан текущий
+> `collect.js`, переменные `TWITTER_AUTH_TOKEN` / `TWITTER_CT0` не читает —
+> он берёт сессию из `x_session_cookies.json` (см. `x-session.sh`).
+> Файлы оставлены для совместимости со старой установкой.
 
 **Easier path on macOS:** log in to x.com in Chrome, Firefox, or Safari, then run:
 
@@ -139,26 +148,55 @@ For manual setup, create or edit `~/.x-creds` with the same template, fill in th
 chmod 600 ~/.x-creds
 ```
 
-### Step 5 — Configure the x-browser MCP server
+### Step 5 — Install x-browser-mcp
 
-This skill calls `mcp__x-browser__x_search` and `mcp__x-browser__x_auth_status`. Wire up an MCP server that exposes those tools (any X scraping MCP will work, as long as the tool names match). Make sure it picks up `TWITTER_AUTH_TOKEN` / `TWITTER_CT0` from `~/.x-creds` — e.g. in your Claude Code config:
+There is no MCP server to register in Claude Code — `collect.js x` talks to
+a local REST service instead. Install the `x-browser-mcp` binary (Go) at
+`$XTIPS_SERVER_DIR` (default `~/.config/opencode/tools/x-browser-mcp`; the
+binary itself is `x-browser-mcp` inside that directory).
 
-```json
-{
-  "mcpServers": {
-    "x-browser": {
-      "command": "node",
-      "args": ["/path/to/x-browser-mcp/dist/server.js"],
-      "env": {
-        "TWITTER_AUTH_TOKEN": "${TWITTER_AUTH_TOKEN}",
-        "TWITTER_CT0": "${TWITTER_CT0}"
-      }
-    }
-  }
-}
-```
+Session bootstrap is fully automatic — `collect.js x` runs `x-session.sh`
+as an idempotent preflight before every collection:
 
-Restart Claude Code so the MCP server and the new skill are picked up.
+1. Confirms Google Chrome is installed at the expected macOS path
+   (`ROD_BROWSER_BIN` must point at Chrome — Firefox makes the underlying
+   `rod` browser driver fail before any network call).
+2. Makes sure the cookie file's directory exists with mode `0700`, and
+   migrates an old cookie file if it finds one (see "Where the session
+   cookies live" below).
+3. Health-checks `http://127.0.0.1:18110/health`; if the server isn't up,
+   starts it with `ROD_BROWSER_BIN` set to Chrome, `X_BROWSER_PROXY` taken
+   from `$HTTPS_PROXY`, `-user-data-dir ""` — the empty user-data-dir is
+   what puts the server into cookie mode (a non-empty value makes it ignore
+   the cookie file) — and `-cookies <path>` so the server reads exactly the
+   file the preflight writes.
+4. Reads `session_file` from `/api/v1/login/status` and compares it with
+   that path. `/health` answers `"ok":true` for a server in profile mode or
+   on an older cookie path too, and such a server silently ignores the
+   cookies we write — so on a mismatch the preflight says what was wrong on
+   stderr, stops the process listening on port 18110, and starts a correctly
+   configured one.
+5. Checks `/api/v1/login/status` for `"state":"ready"`. If it's already
+   ready, nothing further happens.
+6. If not ready, imports cookies from your live, logged-in Chrome profile
+   via `lib/chrome-cookies.js` into the cookie file, then re-checks status.
+7. Only if that import doesn't produce a ready session does it fall back to
+   an interactive login: it calls `/api/v1/login/start`, which opens a
+   Chrome window for you to log into X in. Close that window, then re-run
+   `collect.js`. This is the one case where the preflight exits non-zero
+   (code 2) and needs you to act before continuing.
+
+#### Where the session cookies live
+
+The cookie file holds a live X session — anyone who reads it is logged in as
+you. It is written to `~/.config/x-claude-tips/x_session_cookies.json`
+(directory `0700`, file `0600`), deliberately **outside every git working
+tree**: it used to sit next to the server binary in `$XTIPS_SERVER_DIR`,
+whose `.gitignore` does not cover it, so a single `git add -A` there would
+have committed your account credentials. If the preflight still finds a file
+at the old location it *moves* it to the new path — a move, not a copy, so
+nothing is left behind. Override the path with `XTIPS_COOKIES` if you need
+to; keep it out of a repository.
 
 ### Step 6 — Verify
 
@@ -239,18 +277,33 @@ Files in `~/.claude/knowledge/x-tips/`:
 
 Each rule has a `target` classifier (`CLAUDE.md`, `agent`, `hook`, `settings`, `slash`, `workflow`, `mcp`, `other`) and a `status` (`review` → `adopted` / `rejected` / `removed`).
 
-The repo ships with the maintainer's current rules.jsonl / INDEX.md / decisions.jsonl as a worked example — feel free to wipe and start fresh.
+These files are yours alone — the repo ships no knowledge base of its own, and
+neither `install.sh` nor `update.js` writes into this directory.
 
 ## Hard rules
 
 - Never copy full tweet bodies into the DB. Only the extracted rule line + metadata + source URL.
 - Never auto-apply rules to `CLAUDE.md` / settings / agents. Always show a diff and ask first.
 - Keep rule text terse and imperative. No "I think", no emojis, no hashtags.
-- Dedup is the point: running `fetch` twice over the same window increments `seen` on existing rules, not creates duplicates.
+- Dedup is the point: running `fetch` twice over the same window does not create duplicates. A source already on a rule is a no-op; a new distinct source raises that rule's `consensus`. (`seen` was a 0.1.x field and was removed by the v2 migration — `consensus` replaced it.)
+
+## Legacy scripts
+
+These ship alongside the skill from the opencode-fork consolidation but are
+not part of the `collect.js` flow and need updating before use — see the
+header comment in each file for the specific breakage:
+
+| Script | Status |
+| --- | --- |
+| `add_opencode_tips.js` | Targets the pre-v2 `store.js` schema; its `--bookmarks` flag is rejected by the current `store.js add`. |
+| `generate_qwen_rules.js` | Parses `INDEX.md` by column index; `parts[4]` used to be `likes`, is now `target`. |
+| `diagnose.sh` | Starts `x-browser-mcp` with `ROD_BROWSER_BIN` pointing at Firefox, which `x-session.sh` documents as fatal. |
 
 ## Upgrading from the 0.1.x (Python) version
 
-0.1.x shipped `store.py` and `refresh_creds.py`. 0.2.0 replaces them with Node.js equivalents and drops the `cryptography` dependency. Knowledge base format (`rules.jsonl`, `INDEX.md`, `decisions.jsonl`) is unchanged — your existing data carries over byte-compatible; rule hashes and IDs stay stable.
+0.1.x shipped `store.py` and `refresh_creds.py`. 0.2.0 replaces them with Node.js equivalents and drops the `cryptography` dependency.
+
+**The `rules.jsonl` record shape changed.** Rule hashes, IDs, `text`, `target` and `status` are stable, but v2 gives every source a `kind` and a `metrics` object, derives `authority` / `consensus` / `kinds` per rule, and drops the `seen` and `bookmarks_max` fields. Existing data is **not** byte-compatible; run the one-shot, idempotent migration below (step 4), which writes a timestamped `.bak-` backup next to your store before touching it.
 
 ```bash
 # 1. Remove the old Python scripts
@@ -261,14 +314,22 @@ rm ~/.claude/skills/x-claude-tips/store.py \
 pip3 uninstall cryptography
 
 # 3. Install the new files (from a fresh clone of this repo)
-cp SKILL.md store.js refresh_creds.js update.js install.sh package.json README.md LICENSE \
-   ~/.claude/skills/x-claude-tips/
+cp -R SKILL.md store.js collect.js migrate-v2.js x-session.sh \
+      lib collectors refresh_creds.js update.js install.sh \
+      package.json README.md LICENSE \
+      ~/.claude/skills/x-claude-tips/
 chmod +x ~/.claude/skills/x-claude-tips/store.js \
+         ~/.claude/skills/x-claude-tips/collect.js \
+         ~/.claude/skills/x-claude-tips/migrate-v2.js \
+         ~/.claude/skills/x-claude-tips/x-session.sh \
          ~/.claude/skills/x-claude-tips/refresh_creds.js \
          ~/.claude/skills/x-claude-tips/update.js \
          ~/.claude/skills/x-claude-tips/install.sh
 
-# 4. Restart Claude Code so the updated SKILL.md is picked up.
+# 4. Migrate rules.jsonl to the v2 record shape (idempotent, backs up first)
+node ~/.claude/skills/x-claude-tips/migrate-v2.js
+
+# 5. Restart Claude Code so the updated SKILL.md is picked up.
 ```
 
 Known cosmetic differences vs the Python version (functionally identical):

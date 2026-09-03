@@ -1,12 +1,12 @@
 ---
 name: x-claude-tips
-description: Mine X/Twitter for high-signal Claude Code / CLAUDE.md / agent / hook tips via mcp__x-browser__, dedupe into a rules DB, and help the user review/apply them. Use when the user says "search X for claude tips", "find new CLAUDE.md ideas", "/x-claude-tips", or asks to update claude tips knowledge base.
+description: Mine X/Twitter for high-signal Claude Code / CLAUDE.md / agent / hook tips via `node collect.js x`, dedupe into a multi-source rules DB, and help the user review/apply them. Use when the user says "search X for claude tips", "find new CLAUDE.md ideas", "/x-claude-tips", or asks to update claude tips knowledge base.
 argument-hint: "fetch [days] | review | show <id> | apply <id> | status <id> <state> | index | stats | update"
 ---
 
 # x-claude-tips
 
-Mine X (Twitter) for actionable Claude Code improvements. Deduplicate across sources. Track `seen` count and engagement max. Only concrete rules, no fluff.
+Mine X (Twitter) for actionable Claude Code improvements. Deduplicate across sources. Track `consensus` (distinct-source count) and engagement max. Only concrete rules, no fluff.
 
 ## Knowledge base layout
 
@@ -49,28 +49,40 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
 
 ### Steps
 
-1. Call `mcp__x-browser__x_auth_status`. If not logged in, tell the user to refresh `~/.x-creds` (run `node ~/.claude/skills/x-claude-tips/refresh_creds.js`; it creates a fill-in template if `~/.x-creds` is missing). If the user logged in through a non-default browser, pass `--browser firefox`, `--browser safari`, or `--browser auto`. Stop after giving the refresh instruction.
+1. Запусти `node ~/.claude/skills/x-claude-tips/collect.js x --days <days>`
+   (по умолчанию 14; скилл работает с cwd пользовательского проекта, поэтому
+   путь абсолютный). Раннер сам
+   поднимет сервер, подложит куки и отработает лимиты; отдельно проверять
+   авторизацию не нужно. Ненулевой код возврата означает, что нужен
+   интерактивный логин — сообщение скажет, что делать, и на этом остановись.
 
-2. Compute `since = today - days` (default 14). Run `mcp__x-browser__x_search` with `sort="Top"` for each query below. Cap `count=30`. Replace `<SINCE>` with the iso date.
+2. Прочитай свежий файл стейджинга из
+   `~/.claude/knowledge/x-tips/staging/x/<run-id>.json`. Поля:
+   - `collected` — сколько постов пришло от коллектора ДО любых фильтров;
+   - `items` — прошедшее оба фильтра;
+   - `dropped` — отброшенное, по записи `{id, reason, author, text}` на
+     каждый пост. `text` лежит здесь именно для того, чтобы аудит фильтра
+     не требовал повторного запроса к X. Причины: `engagement` (не добрал
+     порог вовлечённости), `bait`, `listicle`, `announcement`, `link-only`,
+     `clone`;
+   - `errors` — список `{query, error}`.
 
-   - `"CLAUDE.md" min_faves:500 since:<SINCE> lang:en`
-   - `"claude code" (subagent OR agent) min_faves:500 since:<SINCE> lang:en`
-   - `"claude code" (hook OR skill OR "slash command") min_faves:500 since:<SINCE> lang:en`
-   - `"claude code" (tip OR trick OR workflow OR config) min_faves:1000 since:<SINCE> lang:en`
-   - `from:AnthropicAI claude code since:<SINCE>` (no min_faves — staff signal)
-   - `from:alexalbert__ OR from:_catwu OR from:sauers_ claude since:<SINCE>` (known practitioners)
+   `collected` = `items` + `dropped`, сходится всегда. Просмотри `dropped`
+   на ложные срабатывания (текст рядом — читать можно прямо там) и скажи о
+   них пользователю. Если `errors` непустой, скажи, какие запросы не
+   отработали — сбор продолжился и всё равно застейджил то, что собрал по
+   остальным.
 
-3. For each returned tweet, apply the **engagement filter**:
-   - keep if `likes >= 1000` OR `retweets >= 150` OR `bookmarks >= 300`
-   - for Anthropic staff / known practitioners: keep if `likes >= 200`
-   - skip if no concrete instruction (pure hype, screenshots only, announcements)
-
-4. For each kept tweet, **extract rule lines** — one concrete, self-contained instruction per rule. No fluff, no "I think", no "maybe". Rewrite in imperative if needed but keep as close to the source as possible. Examples:
+3. Из `items` извлеки правила. Для записей с `truncated: true` не достраивай
+   смысл за обрывом текста: правило либо выводится из уцелевшей части, либо
+   не выводится. Одно правило — одна конкретная, самодостаточная инструкция.
+   Без воды, без "I think", без "maybe". Формулируй в императиве, но держись
+   как можно ближе к источнику. Примеры:
    - Tweet: "pro tip — always add `/clear` between unrelated tasks, context stays fresh" → rule: `Use /clear between unrelated tasks to keep context fresh.`
    - Tweet: "put your agent invocation rules in CLAUDE.md not in prompts" → rule: `Put agent invocation rules in CLAUDE.md, not in individual prompts.`
    - Thread with 5 bullets → 5 separate rules.
 
-5. Classify `target` for each rule (pick one):
+4. Classify `target` for each rule (pick one):
    - `CLAUDE.md` — text for a CLAUDE.md file (conventions, behavior rules)
    - `agent` — subagent design / when-to-spawn rule
    - `hook` — PreToolUse / PostToolUse / Stop hooks
@@ -80,7 +92,7 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
    - `mcp` — MCP server config or usage
    - `other`
 
-6. For each rule call:
+5. For each rule call:
    ```
    node ~/.claude/skills/x-claude-tips/store.js add \
      --text "<rule line>" \
@@ -88,34 +100,47 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
      --source <tweet_id_or_permalink_tail> \
      --author <handle> \
      --url <tweet_url> \
-     --likes <N> --retweets <N> --bookmarks <N>
+     --likes <N> --retweets <N> \
+     --kind x \
+     --collected-at <collected_at элемента из стейджинга>
    ```
-   The store returns `NEW r_XXXX` / `DUPE r_XXXX seen=N` / exits with `SIMILAR r_XXXX(0.xx)` on stderr (code 2) if near-duplicate.
+   `--collected-at` передавай всегда: без него источник получит сегодняшнюю
+   дату, а не дату прогона (правило, извлечённое наутро, записало бы чужой
+   день). `--kind` принимает только `docs`, `changelog`, `lessons`,
+   `github`, `x`.
 
-7. On `SIMILAR`: show the user both texts (`store.js show <existing>` vs. the new one) and ask: merge (variant), add separately (`--force`), or skip. Default action: show, don't auto-decide.
+   The store returns `NEW r_XXXX` / `DUPE r_XXXX consensus=N` / exits with `SIMILAR r_XXXX(0.xx)` on stderr (code 2) if near-duplicate.
 
-8. After the loop, run `store.js index` to regenerate `INDEX.md` and `store.js stats` to print totals. Report to user: `N new / M dupes-incremented / K similar-pending`.
+6. On `SIMILAR`: show the user both texts (`store.js show <existing>` vs. the new one) and ask: merge (variant), add separately (`--force`), or skip. Default action: show, don't auto-decide.
+
+7. After the loop, run `store.js index` to regenerate `INDEX.md` and `store.js stats` to print totals. Report to user: `N new / M dupes-incremented / K similar-pending`.
 
 ### Engagement threshold rationale
 
-10k likes is too strict — filters out ~90% of useful Claude Code tips (audience is relatively small). Defaults are chosen so that a tweet with genuine adoption signal passes:
+`collect.js` applies the engagement threshold (`passesEngagement`, exported
+from `collectors/x.js`) as the first of two filters, and records every
+rejection in `dropped` with reason `engagement` — the collector itself no
+longer drops anything silently, so the threshold can be retuned from a
+staging file without re-querying X:
 
-- `likes >= 1000` = clear resonance
-- `bookmarks >= 300` = "I want to apply this" (strongest signal for actionable content)
-- `retweets >= 150` = amplification
-- Lower bar for Anthropic staff / repeat practitioners (trusted source)
+- `likes >= 1000` OR `retweets >= 150` = clear resonance / amplification
+- `likes >= 200` for Anthropic staff and named practitioners (trusted source, lower bar)
+- `bookmarks` is not a threshold input — the server this collector talks to never returns that metric
 
-The user can override per-run: `fetch 30 --min-likes 2000` etc. (extend search queries accordingly).
+There is no per-run threshold override; adjust the window instead with
+`--since YYYY-MM-DD` / `--days N`, or pass `--no-filter` to skip BOTH the
+engagement filter and the noise filter and stage everything the collector
+returned.
 
 ## Subcommand: review
 
 Show the review queue, prioritized by consensus:
 
 ```
-node ~/.claude/skills/x-claude-tips/store.js list --status review --min-seen 1 --limit 40
+node ~/.claude/skills/x-claude-tips/store.js list --status review --min-consensus 1 --limit 40
 ```
 
-Then present to the user as a numbered list sorted by `seen` desc. For each entry under review, the user decides `adopt` / `reject` / `skip`. On decision:
+(`--min-seen` is accepted as an alias for `--min-consensus`.) The list is already sorted by `authority` desc, then `consensus` desc, then `likes_max` desc — present it to the user in that order. For each entry under review, the user decides `adopt` / `reject` / `skip`. On decision:
 - adopt: `store.js status <id> adopted --note "<where applied>"`
 - reject: `store.js status <id> rejected --note "<reason>"`
 
@@ -160,4 +185,4 @@ Find rules in the current global `~/.claude/CLAUDE.md` that correspond to `rejec
 - Never auto-apply rules to `CLAUDE.md` / settings / agents. Always show diff, ask user.
 - When `store.js add` prints `SIMILAR`, always surface to user; never silently `--force`.
 - Keep rule text terse and imperative. No "I think", no emojis, no hashtags.
-- Deduplication is the point: running `fetch` twice over the same window must increment `seen` on existing rules, not create duplicates.
+- Deduplication is the point: running `fetch` twice over the same window must not create duplicate rules — a repeated source is a no-op `DUPE (source already present)`, a new distinct source on an existing rule bumps its `consensus`.
