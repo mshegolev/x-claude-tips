@@ -4,9 +4,14 @@ A Claude Code skill that mines X (Twitter) for high-signal Claude Code / `CLAUDE
 
 ## What it does
 
-1. **Fetch** — `node collect.js x` drives the local `x-browser-mcp` server over its REST API on `127.0.0.1:18110` to pull fresh, high-engagement tweets about Claude Code, then extracts one-line, imperative rule statements from each.
+1. **Fetch** — three sources, each with its own trust tier:
+   - `node collect.js docs` — the official Claude Code documentation (tier 3), read as markdown straight from `code.claude.com`.
+   - `node collect.js changelog` — Claude Code releases (tier 3), read from `CHANGELOG.md` on GitHub, diffed against the previous run so a version is staged once.
+   - `node collect.js x` — X/Twitter (tier 1), via the local `x-browser-mcp` server on `127.0.0.1:18110`.
+
+   Only `x` needs the browser session preflight; the other two fetch directly. Raw results land in a staging file, and rule extraction reads that file — so filters can be retuned without re-querying a source.
 2. **Dedupe** — every rule is hashed, and near-duplicates (Jaccard ≥ 0.7) are flagged for manual merge so the database stays clean across repeated runs.
-3. **Review** — surfaces the queue of `review`-status rules sorted by consensus (how many independent tweets mentioned the same thing).
+3. **Review** — surfaces the queue of `review`-status rules sorted by **authority** (the trust tier of the strongest source backing it) and then by **consensus** (how many distinct sources said it). One mention in the official docs therefore outranks three tweets.
 4. **Apply** — proposes concrete diffs to your `CLAUDE.md`, settings, hooks, agents, or skills — never auto-edits.
 
 ## Why

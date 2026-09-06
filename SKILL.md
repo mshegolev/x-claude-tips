@@ -49,12 +49,29 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
 
 ### Steps
 
-1. Запусти `node ~/.claude/skills/x-claude-tips/collect.js x --days <days>`
-   (по умолчанию 14; скилл работает с cwd пользовательского проекта, поэтому
-   путь абсолютный). Раннер сам
-   поднимет сервер, подложит куки и отработает лимиты; отдельно проверять
-   авторизацию не нужно. Ненулевой код возврата означает, что нужен
-   интерактивный логин — сообщение скажет, что делать, и на этом остановись.
+1. Выбери источник и запусти коллектор (путь абсолютный: скилл
+   работает с cwd пользовательского проекта):
+   - `node ~/.claude/skills/x-claude-tips/collect.js docs` — официальная
+     документация Claude Code (tier 3). Список страниц — в
+     `collectors/sources.json`, пополняется вручную по индексу
+     https://code.claude.com/docs/llms.txt.
+   - `node ~/.claude/skills/x-claude-tips/collect.js changelog` — релизы
+     Claude Code (tier 3), источник — CHANGELOG.md на GitHub. Диф против
+     прошлого прогона: уже виденные версии повторно не стейджатся, поэтому
+     второй запуск подряд штатно даёт `collected 0`.
+   - `node ~/.claude/skills/x-claude-tips/collect.js x --days <days>` — X
+     (tier 1, по умолчанию 14 дней). Раннер сам поднимет сервер, подложит
+     куки и отработает лимиты; отдельно проверять авторизацию не нужно.
+     Ненулевой код возврата означает, что нужен интерактивный логин —
+     сообщение скажет, что делать, и на этом остановись.
+
+   Префлайт сессии нужен только источнику `x`; `docs` и `changelog` ходят
+   в сеть напрямую, без прокси и без браузера.
+
+   У `docs` и `changelog` шумовой фильтр отключён (`useNoiseFilter = false`):
+   его правила писались под X и на документации дают ложные срабатывания —
+   короткая секция ушла бы как `link-only`, «Introducing …» как
+   `announcement`. Поэтому у этих источников `dropped` всегда пуст.
 
 2. Прочитай свежий файл стейджинга из
    `~/.claude/knowledge/x-tips/staging/x/<run-id>.json`. Поля:
@@ -104,6 +121,22 @@ Goal: pull fresh high-engagement tweets, extract concrete rule lines, store with
      --kind x \
      --collected-at <collected_at элемента из стейджинга>
    ```
+   Для источников `docs` и `changelog` метрик вовлечённости нет, поэтому
+   `--likes` / `--retweets` не передавай, а `--ref` обязателен — он отличает
+   секции одной страницы друг от друга:
+
+   ```
+   node ~/.claude/skills/x-claude-tips/store.js add \
+     --text "<rule line>" \
+     --target <target> \
+     --kind docs \
+     --ref "<заголовок секции>" \
+     --source <id элемента из стейджинга> \
+     --url <url страницы> \
+     --author anthropic \
+     --collected-at <collected_at элемента из стейджинга>
+   ```
+
    `--collected-at` передавай всегда: без него источник получит сегодняшнюю
    дату, а не дату прогона (правило, извлечённое наутро, записало бы чужой
    день). `--kind` принимает только `docs`, `changelog`, `lessons`,
