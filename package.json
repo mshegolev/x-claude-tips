@@ -1,6 +1,6 @@
 {
   "name": "x-claude-tips",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Claude Code skill: mine X (Twitter) for high-signal Claude Code / CLAUDE.md tips, dedupe, review, apply.",
   "type": "module",
   "license": "MIT",

@@ -1,0 +1,28 @@
+{
+  "name": "x-mcp",
+  "version": "0.1.0",
+  "description": "Local MCP server for X/Twitter scraping via headless Chromium (Playwright). Node.js port of the original Python x-mcp.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mshegolev/x-claude-tips.git",
+    "directory": "x-mcp"
+  },
+  "main": "src/server.js",
+  "bin": {
+    "x-mcp": "./src/server.js",
+    "x-mcp-cli": "./src/cli.js"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.49.0"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ]
+}
