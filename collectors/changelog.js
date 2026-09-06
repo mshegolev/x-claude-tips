@@ -76,13 +76,19 @@ export function lastSeenVersion(baseDir) {
   } catch {
     return null;
   }
-  if (files.length === 0) return null;
-  try {
-    const prev = JSON.parse(readFileSync(join(dir, files[files.length - 1]), 'utf8'));
-    return prev.items?.[0]?.ref ?? null;
-  } catch {
-    return null;
+  // Идём от новых прогонов к старым: прогон, не нашедший ничего нового,
+  // пишет пустой items и водяного знака не несёт. Останавливаться на нём
+  // значило бы потерять отметку и застейджить весь файл заново.
+  for (let i = files.length - 1; i >= 0; i--) {
+    try {
+      const prev = JSON.parse(readFileSync(join(dir, files[i]), 'utf8'));
+      const ref = prev.items?.[0]?.ref;
+      if (ref) return ref;
+    } catch {
+      // повреждённый файл прогона — пробуем предыдущий
+    }
   }
+  return null;
 }
 
 export async function collect({

@@ -70,6 +70,19 @@ test('lastSeenVersion reads the newest previous staging run', () => {
   assert.equal(lastSeenVersion(base), '2.1.0');
 });
 
+test('lastSeenVersion skips empty runs and keeps the watermark', () => {
+  const base = mkdtempSync(join(tmpdir(), 'xt-cl-'));
+  const dir = join(base, 'staging', 'changelog');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, '2026-09-05T00-00-00.json'),
+    JSON.stringify({ items: [{ ref: '2.1.0' }] }));
+  // Прогон, не нашедший ничего нового, пишет пустой items. Он не должен
+  // стирать водяной знак — иначе следующий запуск застейджит всё заново.
+  writeFileSync(join(dir, '2026-09-06T00-00-00.json'),
+    JSON.stringify({ items: [] }));
+  assert.equal(lastSeenVersion(base), '2.1.0');
+});
+
 test('lastSeenVersion returns null on a first ever run', () => {
   assert.equal(lastSeenVersion(mkdtempSync(join(tmpdir(), 'xt-cl-'))), null);
 });
