@@ -78,9 +78,15 @@ const passesEngagement = typeof mod.passesEngagement === 'function'
   ? mod.passesEngagement
   : () => true;
 
+// Шумовой фильтр писался под X: на официальной документации короткая
+// секция ушла бы как link-only, а «Introducing …» как announcement.
+// Коллектор объявляет, применим ли он к его источнику; отсутствие поля
+// сохраняет прежнее поведение.
+const useNoiseFilter = mod.useNoiseFilter !== false;
+
 let kept = raw;
 let dropped = [];
-if (!values['no-filter']) {
+if (!values['no-filter'] && useNoiseFilter) {
   const survivors = [];
   for (const item of raw) {
     if (passesEngagement(item)) survivors.push(item);
